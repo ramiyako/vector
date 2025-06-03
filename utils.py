@@ -83,3 +83,62 @@ def create_sample_packets():
         sio.savemat(f'data/packet_{i+1}.mat', {'Y': packet})
     
     return packets 
+
+def find_packet_start(signal, template=None, threshold=0.8):
+    """
+    מוצא את תחילת הפקטה האמיתית באות
+    
+    Args:
+        signal: האות המלא
+        template: תבנית החיפוש (אם None, משתמש בשינוי אנרגיה)
+        threshold: סף הקורלציה או האנרגיה
+    
+    Returns:
+        index: האינדקס של תחילת הפקטה
+    """
+    if template is not None:
+        # חיפוש באמצעות קורלציה
+        correlation = np.correlate(np.abs(signal), np.abs(template), mode='valid')
+        return np.argmax(correlation)
+    else:
+        # חיפוש באמצעות שינוי אנרגיה
+        energy = np.abs(signal) ** 2
+        energy_diff = np.diff(energy)
+        return np.argmax(energy_diff > threshold * np.max(energy_diff))
+
+def measure_packet_timing(signal, template=None):
+    """
+    מודד את המרווחים לפני ואחרי הפקטה
+    
+    Args:
+        signal: האות המלא
+        template: תבנית החיפוש
+    
+    Returns:
+        pre_samples: מספר הסמפלים לפני הפקטה
+        post_samples: מספר הסמפלים אחרי הפקטה
+        packet_start: אינדקס תחילת הפקטה
+    """
+    packet_start = find_packet_start(signal, template)
+    
+    # חישוב המרווחים
+    pre_samples = packet_start
+    post_samples = len(signal) - packet_start - len(template) if template is not None else 0
+    
+    return pre_samples, post_samples, packet_start
+
+def plot_packet_with_markers(signal, packet_start, template=None, title='Packet Analysis'):
+    """
+    מציג את הפקטה עם סימון של תחילת הפקטה האמיתית
+    """
+    plt.figure(figsize=(12, 6))
+    plt.plot(np.abs(signal), label='Signal')
+    plt.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
+    if template is not None:
+        plt.plot(packet_start + np.arange(len(template)), np.abs(template), 'g--', label='Template')
+    plt.title(title)
+    plt.xlabel('Samples')
+    plt.ylabel('Amplitude')
+    plt.legend()
+    plt.grid(True)
+    plt.show() 

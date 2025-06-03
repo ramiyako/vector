@@ -23,6 +23,10 @@ class PacketConfig:
         btn = ttk.Button(self.frame, text="Show spectrogram", command=self.show_spectrogram)
         btn.grid(row=0, column=2, padx=5)
 
+        # Analyze packet button
+        btn = ttk.Button(self.frame, text="Analyze packet", command=self.analyze_packet)
+        btn.grid(row=0, column=3, padx=5)
+
         # Sample rate (MHz)
         ttk.Label(self.frame, text="Sample Rate (MHz):").grid(row=1, column=0, sticky=tk.W)
         self.sr_var = tk.StringVar(value="56")
@@ -38,12 +42,24 @@ class PacketConfig:
         self.period_var = tk.StringVar(value="100")
         ttk.Entry(self.frame, textvariable=self.period_var, width=10).grid(row=3, column=1, sticky=tk.W)
 
+        # Pre-packet samples
+        ttk.Label(self.frame, text="Pre-packet samples:").grid(row=4, column=0, sticky=tk.W)
+        self.pre_samples_var = tk.StringVar(value="0")
+        ttk.Entry(self.frame, textvariable=self.pre_samples_var, width=10).grid(row=4, column=1, sticky=tk.W)
+
+        # Post-packet samples
+        ttk.Label(self.frame, text="Post-packet samples:").grid(row=5, column=0, sticky=tk.W)
+        self.post_samples_var = tk.StringVar(value="0")
+        ttk.Entry(self.frame, textvariable=self.post_samples_var, width=10).grid(row=5, column=1, sticky=tk.W)
+
     def get_config(self):
         return {
             'file': self.file_var.get(),
             'sample_rate': float(self.sr_var.get()) * 1e6,  # MHz to Hz
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
-            'period': float(self.period_var.get()) / 1000.0  # ms to seconds
+            'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
+            'pre_samples': int(self.pre_samples_var.get()),
+            'post_samples': int(self.post_samples_var.get())
         }
 
     def show_spectrogram(self):
@@ -58,6 +74,25 @@ class PacketConfig:
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"Error showing spectrogram: {e}")
+
+    def analyze_packet(self):
+        from utils import load_packet, find_packet_start, measure_packet_timing, plot_packet_with_markers
+        file_path = self.file_var.get()
+        try:
+            y = load_packet(file_path)
+            packet_start = find_packet_start(y)
+            pre_samples, post_samples, _ = measure_packet_timing(y)
+            
+            # עדכון הממשק
+            self.pre_samples_var.set(str(pre_samples))
+            self.post_samples_var.set(str(post_samples))
+            
+            # הצגת התוצאות
+            plot_packet_with_markers(y, packet_start, title=f"Packet Analysis - {file_path}")
+            
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Error analyzing packet: {e}")
 
 class VectorApp:
     def __init__(self, root):
@@ -126,15 +161,23 @@ class VectorApp:
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
                 y = load_packet(cfg['file'])
+                
+                # הסרת הזבל לפני ואחרי הפקטה
+                if cfg['pre_samples'] > 0 or cfg['post_samples'] > 0:
+                    y = y[cfg['pre_samples']:-cfg['post_samples'] if cfg['post_samples'] > 0 else None]
+                
                 # Resample if needed
                 if cfg['sample_rate'] != total_sr:
                     y = resample_signal(y, cfg['sample_rate'], total_sr)
+                
                 # Frequency shift
                 if cfg['freq_shift'] != 0:
                     t = np.arange(len(y)) / total_sr
                     y = y * np.exp(2j * np.pi * cfg['freq_shift'] * t)
+                
                 # Period in samples
                 period_samples = int(cfg['period'] * total_sr)
+                
                 # Insert packet from the beginning in every period
                 for start in range(0, total_samples, period_samples):
                     end = start + len(y)
@@ -145,6 +188,7 @@ class VectorApp:
                     else:
                         y_to_add = y
                     vector[start:start + len(y_to_add)] += y_to_add
+
             # Debug
             print("Vector abs sum:", np.abs(vector).sum())
             print("Vector max:", np.abs(vector).max())
