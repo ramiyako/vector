@@ -39,16 +39,17 @@ def create_spectrogram(sig, sr, center_freq=0):
     return freqs, times, Sxx
 
 def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram'):
-    """מציג ספקטוגרמה"""
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz"""
     Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
     vmin = np.percentile(Sxx_db, 10)
     vmax = np.percentile(Sxx_db, 99)
     plt.figure(figsize=(12, 6))
-    plt.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
+    # הצגה ב-MHz
+    plt.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
     plt.colorbar(label='Power [dB]')
     plt.title(title)
     plt.xlabel('Time [s]')
-    plt.ylabel('Frequency offset [MHz]' if center_freq else 'Frequency [Hz]')
+    plt.ylabel('Frequency [MHz]')
     plt.grid(True)
     if center_freq:
         plt.ylim(-30, 30)
