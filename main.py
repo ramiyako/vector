@@ -2,9 +2,10 @@ import os
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, BooleanVar
-from utils import load_packet, resample_signal, create_spectrogram, plot_spectrogram, save_vector
+from utils import load_packet, resample_signal, create_spectrogram, plot_spectrogram, save_vector, get_sample_rate_from_mat
 
 MAX_PACKETS = 6
+TARGET_SAMPLE_RATE = 10e6  # 10 MHz
 
 class PacketConfig:
     def __init__(self, parent, idx, file_choices):
@@ -18,6 +19,7 @@ class PacketConfig:
         self.file_menu.grid(row=0, column=1, sticky=tk.W)
         if file_choices:
             self.file_var.set(file_choices[0])
+            self.file_menu.bind('<<ComboboxSelected>>', self.on_file_selected)
 
         # Show spectrogram button
         btn = ttk.Button(self.frame, text="Show spectrogram", command=self.show_spectrogram)
@@ -30,7 +32,8 @@ class PacketConfig:
         # Sample rate (MHz)
         ttk.Label(self.frame, text="Sample Rate (MHz):").grid(row=1, column=0, sticky=tk.W)
         self.sr_var = tk.StringVar(value="56")
-        ttk.Entry(self.frame, textvariable=self.sr_var, width=10).grid(row=1, column=1, sticky=tk.W)
+        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10)
+        self.sr_entry.grid(row=1, column=1, sticky=tk.W)
 
         # Frequency shift (MHz)
         ttk.Label(self.frame, text="Frequency shift (MHz):").grid(row=2, column=0, sticky=tk.W)
@@ -47,10 +50,13 @@ class PacketConfig:
         self.pre_samples_var = tk.StringVar(value="0")
         ttk.Entry(self.frame, textvariable=self.pre_samples_var, width=10).grid(row=4, column=1, sticky=tk.W)
 
-        # Post-packet samples
-        ttk.Label(self.frame, text="Post-packet samples:").grid(row=5, column=0, sticky=tk.W)
-        self.post_samples_var = tk.StringVar(value="0")
-        ttk.Entry(self.frame, textvariable=self.post_samples_var, width=10).grid(row=5, column=1, sticky=tk.W)
+    def on_file_selected(self, event=None):
+        """מעדכן את קצב הדגימה אוטומטית כשנבחר קובץ"""
+        file_path = self.file_var.get()
+        if file_path:
+            sample_rate = get_sample_rate_from_mat(file_path)
+            if sample_rate:
+                self.sr_var.set(str(sample_rate / 1e6))  # המרה ל-MHz
 
     def get_config(self):
         return {
@@ -58,8 +64,7 @@ class PacketConfig:
             'sample_rate': float(self.sr_var.get()) * 1e6,  # MHz to Hz
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
             'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
-            'pre_samples': int(self.pre_samples_var.get()),
-            'post_samples': int(self.post_samples_var.get())
+            'pre_samples': int(self.pre_samples_var.get())
         }
 
     def show_spectrogram(self):
@@ -68,9 +73,9 @@ class PacketConfig:
         file_path = self.file_var.get()
         try:
             y = load_packet(file_path)
-            print(f"First values of {file_path}: {y[:10]}")
-            f, t, Sxx = create_spectrogram(y, 56e6)  # default 56MHz
-            plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {file_path}")
+            sample_rate = float(self.sr_var.get()) * 1e6
+            f, t, Sxx = create_spectrogram(y, sample_rate)
+            plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {file_path}", sample_rate=sample_rate, signal=y)
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"Error showing spectrogram: {e}")
@@ -81,14 +86,15 @@ class PacketConfig:
         try:
             y = load_packet(file_path)
             packet_start = find_packet_start(y)
-            pre_samples, post_samples, _ = measure_packet_timing(y)
+            pre_samples, _, _ = measure_packet_timing(y)
             
             # עדכון הממשק
             self.pre_samples_var.set(str(pre_samples))
-            self.post_samples_var.set(str(post_samples))
             
             # הצגת התוצאות
-            plot_packet_with_markers(y, packet_start, title=f"Packet Analysis - {file_path}")
+            sample_rate = float(self.sr_var.get()) * 1e6
+            f, t, Sxx = create_spectrogram(y, sample_rate)
+            plot_spectrogram(f, t, Sxx, title=f"Packet Analysis - {file_path}", packet_start=packet_start, sample_rate=sample_rate, signal=y)
             
         except Exception as e:
             from tkinter import messagebox
@@ -119,7 +125,7 @@ class VectorApp:
 
         # Vector length (seconds)
         ttk.Label(main_frame, text="Vector length (seconds):").pack(anchor=tk.W)
-        self.vector_length_var = tk.StringVar(value="10")
+        self.vector_length_var = tk.StringVar(value="1")  # שינוי ל-1 שנייה כברירת מחדל
         ttk.Entry(main_frame, textvariable=self.vector_length_var, width=10).pack(anchor=tk.W, pady=2)
 
         # Number of packets
@@ -153,30 +159,28 @@ class VectorApp:
     def generate_vector(self):
         try:
             vector_length = float(self.vector_length_var.get())
-            # Use the highest sample rate for the output vector
-            total_sr = max([pc.get_config()['sample_rate'] for pc in self.packet_configs])
-            total_samples = int(vector_length * total_sr)
+            total_samples = int(vector_length * TARGET_SAMPLE_RATE)
             vector = np.zeros(total_samples, dtype=np.complex64)
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
                 y = load_packet(cfg['file'])
                 
-                # הסרת הזבל לפני ואחרי הפקטה
-                if cfg['pre_samples'] > 0 or cfg['post_samples'] > 0:
-                    y = y[cfg['pre_samples']:-cfg['post_samples'] if cfg['post_samples'] > 0 else None]
+                # הסרת הזבל לפני הפקטה
+                if cfg['pre_samples'] > 0:
+                    y = y[cfg['pre_samples']:]
                 
-                # Resample if needed
-                if cfg['sample_rate'] != total_sr:
-                    y = resample_signal(y, cfg['sample_rate'], total_sr)
+                # Resample ל-10MHz
+                if cfg['sample_rate'] != TARGET_SAMPLE_RATE:
+                    y = resample_signal(y, cfg['sample_rate'], TARGET_SAMPLE_RATE)
                 
                 # Frequency shift
                 if cfg['freq_shift'] != 0:
-                    t = np.arange(len(y)) / total_sr
+                    t = np.arange(len(y)) / TARGET_SAMPLE_RATE
                     y = y * np.exp(2j * np.pi * cfg['freq_shift'] * t)
                 
                 # Period in samples
-                period_samples = int(cfg['period'] * total_sr)
+                period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
                 
                 # Insert packet from the beginning in every period
                 for start in range(0, total_samples, period_samples):
@@ -193,13 +197,15 @@ class VectorApp:
             print("Vector abs sum:", np.abs(vector).sum())
             print("Vector max:", np.abs(vector).max())
             print("Vector min:", np.abs(vector).min())
+            
             # Normalize
             if self.normalize.get():
                 max_abs = np.abs(vector).max()
                 if max_abs > 0:
                     vector = vector / max_abs
+                    
             save_vector(vector, 'data/output_vector.mat')
-            f, t, Sxx = create_spectrogram(vector, total_sr)
+            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE)
             plot_spectrogram(f, t, Sxx, title='Final Vector Spectrogram')
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:

@@ -10,14 +10,31 @@ from matplotlib.colors import Normalize
 plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['axes.unicode_minus'] = False
 
-def load_packet(file_path):
-    """טוען פקטה מקובץ .mat"""
+def get_sample_rate_from_mat(file_path):
+    """מחלץ את קצב הדגימה מקובץ .mat"""
     data = sio.loadmat(file_path)
-    return data['Y'].flatten()
+    if 'X_delta' in data:
+        return 1.0 / float(data['X_delta'])
+    return None
+
+def load_packet(file_path):
+    """טוען פקטה מקובץ .mat ומחזיר תמיד np.complex64 או np.float32"""
+    data = sio.loadmat(file_path)
+    y = data['Y'].flatten()
+    # המרה לסוג מתאים
+    if np.iscomplexobj(y):
+        return y.astype(np.complex64)
+    else:
+        return y.astype(np.float32)
 
 def resample_signal(signal, orig_sr, target_sr):
-    """משנה את קצב הדגימה של האות"""
-    return librosa.resample(signal, orig_sr=orig_sr, target_sr=target_sr)
+    """Resample גם לאותות קומפלקסיים וגם ריאליים"""
+    if np.iscomplexobj(signal):
+        real = librosa.resample(np.real(signal).astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
+        imag = librosa.resample(np.imag(signal).astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
+        return real + 1j * imag
+    else:
+        return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
 
 def create_spectrogram(sig, sr, center_freq=0):
     """יוצר ספקטוגרמה מהאות, תומך גם ב-center_freq"""
@@ -38,23 +55,40 @@ def create_spectrogram(sig, sr, center_freq=0):
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
-def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram'):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz"""
+def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start=None, sample_rate=None, signal=None):
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz, וגרף אות עם סימון תחילת פקטה"""
     Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
     vmin = np.percentile(Sxx_db, 10)
     vmax = np.percentile(Sxx_db, 99)
-    plt.figure(figsize=(12, 6))
-    # הצגה ב-MHz
-    plt.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
-    plt.colorbar(label='Power [dB]')
-    plt.title(title)
-    plt.xlabel('Time [s]')
-    plt.ylabel('Frequency [MHz]')
-    plt.grid(True)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+
+    im = ax1.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
+    ax1.set_title(title)
+    ax1.set_xlabel('Time [s]')
+    ax1.set_ylabel('Frequency [MHz]')
+    ax1.grid(True)
     if center_freq:
-        plt.ylim(-30, 30)
-        plt.axhline(y=-20, color='r', linestyle='--', alpha=0.5)
-        plt.axhline(y=20, color='r', linestyle='--', alpha=0.5)
+        ax1.set_ylim(-30, 30)
+        ax1.axhline(y=-20, color='r', linestyle='--', alpha=0.5)
+        ax1.axhline(y=20, color='r', linestyle='--', alpha=0.5)
+    if packet_start is not None and sample_rate is not None:
+        packet_time = packet_start / sample_rate
+        ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
+    plt.colorbar(im, ax=ax1, label='Power [dB]')
+
+    # גרף האות
+    if signal is not None:
+        ax2.plot(np.abs(signal))
+        if packet_start is not None:
+            ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
+        ax2.set_title('Signal with Packet Start Marker')
+        ax2.set_xlabel('Samples')
+        ax2.set_ylabel('Amplitude')
+        ax2.legend()
+        ax2.grid(True)
+
+    plt.tight_layout()
     plt.show()
 
 def save_vector(vector, output_path):
