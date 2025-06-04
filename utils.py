@@ -11,16 +11,28 @@ plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['axes.unicode_minus'] = False
 
 def get_sample_rate_from_mat(file_path):
-    """מחלץ את קצב הדגימה מקובץ .mat לפי השדה ``xDelta`` (או שמות דומים)."""
+    """מחלץ את קצב הדגימה מקובץ ``.mat``.
+
+    הפונקציה מנסה למצוא שדה הקרוי ``xDelta`` (בכתיבים שונים) ומשתמשת בו כדי
+    לחשב את קצב הדגימה. ישנם קבצים שבהם השדה כבר מכיל את קצב הדגימה עצמו
+    (לדוגמה "xDelta" = 56000000), ואחרים שבהם השדה מייצג את מרווח הדגימה
+    (למשל ``1/Fs``). לכן מתבצעת בדיקה פשוטה: אם הערך גדול מ-1 הוא נחשב כקצב
+    הדגימה, אחרת משתמשים ב-
+    ``1 / value``.
+    """
+
     data = sio.loadmat(file_path)
 
-    # חיפוש חסין רגישות אותיות
     for key in data.keys():
-        if key.lower() in {"xdelta", "x_delta", "x delta"}:
+        normalized = key.lower().replace('_', '').replace(' ', '')
+        if normalized == "xdelta":
             try:
-                return 1.0 / float(data[key])
+                value = float(np.squeeze(data[key]))
+                if value <= 0:
+                    continue
+                return value if value > 1 else 1.0 / value
             except Exception:
-                pass
+                continue
     return None
 
 def load_packet(file_path):
