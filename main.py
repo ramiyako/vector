@@ -22,7 +22,6 @@ class PacketConfig:
         if file_choices:
             self.file_var.set(file_choices[0])
             self.file_menu.bind('<<ComboboxSelected>>', self.on_file_selected)
-            self.on_file_selected()
 
         # Show spectrogram button
         btn = ttk.Button(self.frame, text="Show spectrogram", command=self.show_spectrogram)
@@ -37,6 +36,10 @@ class PacketConfig:
         self.sr_var = tk.StringVar(value="")
         self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10, state='readonly')
         self.sr_entry.grid(row=1, column=1, sticky=tk.W)
+
+        # קרא קצב דגימה עבור הקובץ הראשון
+        if file_choices:
+            self.on_file_selected()
 
         # Frequency shift (MHz)
         ttk.Label(self.frame, text="Frequency shift (MHz):").grid(row=2, column=0, sticky=tk.W)
