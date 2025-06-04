@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector
 import tkinter as tk
 from tkinter import filedialog, ttk
-from utils import create_spectrogram, plot_spectrogram, get_sample_rate_from_mat
+from utils import create_spectrogram, plot_spectrogram, get_sample_rate_from_mat, normalize_spectrogram
 
 class PacketExtractor:
     def __init__(self):
@@ -68,12 +68,7 @@ class PacketExtractor:
         try:
             sample_rate = float(self.sample_rate_var.get()) * 1e6
             f, t, Sxx = create_spectrogram(self.signal, sample_rate)
-            
-            # נרמול הספקטוגרמה
-            Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
-            Sxx_db = Sxx_db - np.max(Sxx_db)  # נרמול למקסימום 0 dB
-            vmin = max(-60, np.percentile(Sxx_db, 5))
-            vmax = np.percentile(Sxx_db, 99)
+            Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
             
             # יצירת חלון חדש לספקטוגרמה
             fig, ax = plt.subplots(figsize=(12, 6))

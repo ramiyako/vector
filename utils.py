@@ -55,11 +55,21 @@ def create_spectrogram(sig, sr, center_freq=0):
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
+def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic_range=60):
+    """Normalize spectrogram values and compute display range.
+
+    Returns normalized Sxx in dB and suitable vmin/vmax for plotting."""
+    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
+    Sxx_db -= np.max(Sxx_db)
+    vmin = np.percentile(Sxx_db, low_percentile)
+    vmax = np.percentile(Sxx_db, high_percentile)
+    if vmax - vmin > max_dynamic_range:
+        vmin = vmax - max_dynamic_range
+    return Sxx_db, vmin, vmax
+
 def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start=None, sample_rate=None, signal=None):
     """מציג ספקטוגרמה עם ציר תדר ב-MHz, וגרף אות עם סימון תחילת פקטה"""
-    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
-    vmin = np.percentile(Sxx_db, 10)
-    vmax = np.percentile(Sxx_db, 99)
+    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
