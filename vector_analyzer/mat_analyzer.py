@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 import threading
 from scipy import signal as sig
+from utils import normalize_spectrogram
 
 class MatAnalyzerGUI:
     def __init__(self):
@@ -113,9 +114,8 @@ class MatAnalyzerGUI:
                                       noverlap=noverlap,
                                       return_onesided=False)
             
-            # המרה ל-dB
-            Sxx_db = 20 * np.log10(np.abs(Sxx) + 1e-12)
-            Sxx_db = Sxx_db - np.max(Sxx_db)  # נרמול למקסימום 0 dB
+            # נרמול הספקטרוגרמה
+            Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
             
             # הזזת התדרים
             f = np.fft.fftshift(f)
@@ -129,11 +129,11 @@ class MatAnalyzerGUI:
             
             # הצגת הספקטרוגרמה
             plt.figure(figsize=(12, 6))
-            plt.pcolormesh(f/1e6, t*1e3, Sxx_db.T, 
+            plt.pcolormesh(f/1e6, t*1e3, Sxx_db.T,
                           shading='gouraud',
                           cmap=default_colormap,
-                          vmin=-60,  # הגבלת טווח הצבעים
-                          vmax=0)
+                          vmin=vmin,
+                          vmax=vmax)
             plt.colorbar(label='עוצמה [dB]')
             plt.title(f"ספקטרוגרמה - {Path(self.file_path).name}")
             plt.xlabel("תדר [MHz]")

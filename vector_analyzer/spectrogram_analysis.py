@@ -3,6 +3,7 @@ from scipy.io import loadmat
 from scipy import signal
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+from utils import normalize_spectrogram
 
 def plot_spectrum(data, sample_rate, center_freq, title):
     """ציור ספקטרום של האות"""
@@ -49,16 +50,15 @@ def create_spectrogram(data, sample_rate, center_freq, title):
     # הזזת התדרים לתדר המרכזי
     freqs = np.fft.fftshift(freqs) + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
-    
-    # חישוב הספקטרום בדציבלים
-    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
-    
+
+    # נרמול הספקטרוגרמה
+    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+
     # ציור הספקטוגרמה
     plt.figure(figsize=(15, 8))
-    plt.pcolormesh(times, (freqs - center_freq)/1e6, Sxx_db, 
+    plt.pcolormesh(times, (freqs - center_freq)/1e6, Sxx_db,
                   shading='nearest', cmap='viridis',
-                  norm=Normalize(vmin=np.percentile(Sxx_db, 10),
-                               vmax=np.percentile(Sxx_db, 99)))
+                  norm=Normalize(vmin=vmin, vmax=vmax))
     
     plt.colorbar(label='Power (dB)')
     plt.title(f'Spectrogram - {title}')
