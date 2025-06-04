@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
+from utils import get_sample_rate_from_mat
 
 # הגדרות
-SAMPLE_RATE = 56e6  # 56 MHz
 CENTER_FREQ = 5230e6  # 5230 MHz
 BANDWIDTH = 40e6  # 40 MHz
 TARGET_CHANNELS = [5220e6, 5240e6]  # הערוצים המעניינים אותנו
@@ -41,11 +41,13 @@ def plot_channel(freqs, magnitude, title, filename):
 
 def main():
     # טעינת הנתונים
-    data = load_vector_data('vectors/OS40-5600-40-air3-5230.mat')
+    file_path = 'vectors/OS40-5600-40-air3-5230.mat'
+    data = load_vector_data(file_path)
+    sample_rate = get_sample_rate_from_mat(file_path) or 56e6
     
     # ניתוח כל ערוץ
     for channel_freq in TARGET_CHANNELS:
-        freqs, magnitude = analyze_channel(data, channel_freq, SAMPLE_RATE, CHANNEL_BANDWIDTH)
+        freqs, magnitude = analyze_channel(data, channel_freq, sample_rate, CHANNEL_BANDWIDTH)
         filename = f'channel_{int(channel_freq/1e6)}MHz.png'
         plot_channel(freqs, magnitude, f'ספקטרום ערוץ {channel_freq/1e6}MHz', filename)
         print(f'הגרף נשמר בקובץ: {filename}')

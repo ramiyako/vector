@@ -27,7 +27,7 @@ class PacketExtractor:
         # שדות קלט
         ttk.Label(self.root, text="קצב דגימה (MHz):").pack()
         self.sample_rate_var = tk.StringVar()
-        self.sample_rate_entry = ttk.Entry(self.root, textvariable=self.sample_rate_var)
+        self.sample_rate_entry = ttk.Entry(self.root, textvariable=self.sample_rate_var, state='readonly')
         self.sample_rate_entry.pack()
         
         # כפתור להצגת ספקטוגרמה
@@ -66,7 +66,7 @@ class PacketExtractor:
             return
             
         try:
-            sample_rate = float(self.sample_rate_var.get()) * 1e6
+            sample_rate = self.sample_rate
             f, t, Sxx = create_spectrogram(self.signal, sample_rate)
             
             # נרמול הספקטוגרמה

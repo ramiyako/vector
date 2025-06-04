@@ -12,6 +12,8 @@ class PacketConfig:
         self.frame = ttk.LabelFrame(parent, text=f"Packet {idx+1}")
         self.frame.pack(fill=tk.X, padx=5, pady=5)
 
+        self.sample_rate = None
+
         # File selection
         ttk.Label(self.frame, text="Select file:").grid(row=0, column=0, sticky=tk.W)
         self.file_var = tk.StringVar()
@@ -20,6 +22,7 @@ class PacketConfig:
         if file_choices:
             self.file_var.set(file_choices[0])
             self.file_menu.bind('<<ComboboxSelected>>', self.on_file_selected)
+            self.on_file_selected()
 
         # Show spectrogram button
         btn = ttk.Button(self.frame, text="Show spectrogram", command=self.show_spectrogram)
@@ -31,8 +34,8 @@ class PacketConfig:
 
         # Sample rate (MHz)
         ttk.Label(self.frame, text="Sample Rate (MHz):").grid(row=1, column=0, sticky=tk.W)
-        self.sr_var = tk.StringVar(value="56")
-        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10)
+        self.sr_var = tk.StringVar(value="")
+        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10, state='readonly')
         self.sr_entry.grid(row=1, column=1, sticky=tk.W)
 
         # Frequency shift (MHz)
@@ -56,12 +59,16 @@ class PacketConfig:
         if file_path:
             sample_rate = get_sample_rate_from_mat(file_path)
             if sample_rate:
-                self.sr_var.set(str(sample_rate / 1e6))  # המרה ל-MHz
+                self.sample_rate = sample_rate
+                self.sr_var.set(str(sample_rate / 1e6))
+            else:
+                self.sample_rate = 56e6
+                self.sr_var.set("56")
 
     def get_config(self):
         return {
             'file': self.file_var.get(),
-            'sample_rate': float(self.sr_var.get()) * 1e6,  # MHz to Hz
+            'sample_rate': self.sample_rate,
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
             'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
             'pre_samples': int(self.pre_samples_var.get())
@@ -73,7 +80,11 @@ class PacketConfig:
         file_path = self.file_var.get()
         try:
             y = load_packet(file_path)
-            sample_rate = float(self.sr_var.get()) * 1e6
+            sample_rate = self.sample_rate
+            if sample_rate is None:
+                from tkinter import messagebox
+                messagebox.showerror("Error", "Sample rate not found")
+                return
             f, t, Sxx = create_spectrogram(y, sample_rate)
             plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {file_path}", sample_rate=sample_rate, signal=y)
         except Exception as e:
@@ -92,7 +103,11 @@ class PacketConfig:
             self.pre_samples_var.set(str(pre_samples))
             
             # הצגת התוצאות
-            sample_rate = float(self.sr_var.get()) * 1e6
+            sample_rate = self.sample_rate
+            if sample_rate is None:
+                from tkinter import messagebox
+                messagebox.showerror("Error", "Sample rate not found")
+                return
             f, t, Sxx = create_spectrogram(y, sample_rate)
             plot_spectrogram(f, t, Sxx, title=f"Packet Analysis - {file_path}", packet_start=packet_start, sample_rate=sample_rate, signal=y)
             

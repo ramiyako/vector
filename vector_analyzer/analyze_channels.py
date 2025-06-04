@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
+from utils import get_sample_rate_from_mat
 
 def plot_spectrum(data, sample_rate, center_freq, title):
     """ציור ספקטרום של אות"""
@@ -28,11 +29,13 @@ def main():
     channels = [5220, 5240]
     for freq in channels:
         # טעינת הקובץ
-        data = loadmat(f'vectors/channel_{freq}MHz.mat')
+        path = f'vectors/channel_{freq}MHz.mat'
+        data = loadmat(path)
         signal = data['Y'].flatten()
-        
+        sr = get_sample_rate_from_mat(path) or 56e6
+
         # ציור הספקטרום
-        plot_spectrum(signal, 56e6, 5230e6, f'{freq}MHz')
+        plot_spectrum(signal, sr, 5230e6, f'{freq}MHz')
         print(f'נשמר גרף ספקטרום: spectrum_{freq}MHz.png')
 
 if __name__ == '__main__':

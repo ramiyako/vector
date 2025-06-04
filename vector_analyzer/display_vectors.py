@@ -2,6 +2,7 @@ import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
 import os
+from utils import get_sample_rate_from_mat
 
 def display_spectrogram(input_dir, target_file):
     """
@@ -24,7 +25,8 @@ def display_spectrogram(input_dir, target_file):
     # חישוב ספקטרום
     N = len(signal)
     spectrum = np.fft.fftshift(np.fft.fft(signal))
-    freq = np.fft.fftshift(np.fft.fftfreq(N, 1/56e6))  # 56 MHz sample rate
+    sr = get_sample_rate_from_mat(mat_file_path) or 56e6
+    freq = np.fft.fftshift(np.fft.fftfreq(N, 1/sr))
     
     # הצגת הספקטרום
     ax.plot(freq/1e6, 20*np.log10(np.abs(spectrum)), 

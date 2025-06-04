@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
+from utils import get_sample_rate_from_mat
 import threading
 from scipy import signal as sig
 
@@ -12,6 +13,7 @@ class MatAnalyzerGUI:
         self.root = tk.Tk()
         self.root.title("MAT File Analyzer")
         self.root.geometry("400x400")
+        self.current_sr = None
         
         # יצירת ממשק משתמש
         self.create_widgets()
@@ -23,9 +25,8 @@ class MatAnalyzerGUI:
         
         # שדות קלט
         ttk.Label(self.root, text="קצב דגימה (MHz):").pack()
-        self.sample_rate = ttk.Entry(self.root)
+        self.sample_rate = ttk.Entry(self.root, state='readonly')
         self.sample_rate.pack()
-        self.sample_rate.insert(0, "40")  # ברירת מחדל
         
         ttk.Label(self.root, text="תדר מרכזי (MHz):").pack()
         self.center_freq = ttk.Entry(self.root)
@@ -60,6 +61,16 @@ class MatAnalyzerGUI:
         )
         if self.file_path:
             self.status_label.config(text=f"נבחר קובץ: {Path(self.file_path).name}")
+            sr = get_sample_rate_from_mat(self.file_path)
+            self.sample_rate.config(state='normal')
+            self.sample_rate.delete(0, tk.END)
+            if sr:
+                self.sample_rate.insert(0, str(sr / 1e6))
+                self.current_sr = sr
+            else:
+                self.sample_rate.insert(0, "?")
+                self.current_sr = None
+            self.sample_rate.config(state='readonly')
             
     def plot_spectrogram(self):
         if not hasattr(self, 'file_path'):
@@ -67,7 +78,10 @@ class MatAnalyzerGUI:
             return
             
         try:
-            sample_rate = float(self.sample_rate.get()) * 1e6
+            sample_rate = self.current_sr
+            if sample_rate is None:
+                self.status_label.config(text="קצב הדגימה לא נמצא")
+                return
             center_freq = float(self.center_freq.get()) * 1e6
             window_size = int(self.window_size.get())
             overlap_percent = float(self.overlap.get())
@@ -156,7 +170,10 @@ class MatAnalyzerGUI:
             return
             
         try:
-            sample_rate = float(self.sample_rate.get()) * 1e6
+            sample_rate = self.current_sr
+            if sample_rate is None:
+                self.status_label.config(text="קצב הדגימה לא נמצא")
+                return
             center_freq = float(self.center_freq.get()) * 1e6
         except ValueError:
             self.status_label.config(text="יש להזין מספרים תקינים")

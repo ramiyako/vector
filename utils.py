@@ -11,10 +11,16 @@ plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['axes.unicode_minus'] = False
 
 def get_sample_rate_from_mat(file_path):
-    """מחלץ את קצב הדגימה מקובץ .mat"""
+    """מחלץ את קצב הדגימה מקובץ .mat לפי השדה ``xDelta`` (או שמות דומים)."""
     data = sio.loadmat(file_path)
-    if 'X_delta' in data:
-        return 1.0 / float(data['X_delta'])
+
+    # חיפוש חסין רגישות אותיות
+    for key in data.keys():
+        if key.lower() in {"xdelta", "x_delta", "x delta"}:
+            try:
+                return 1.0 / float(data[key])
+            except Exception:
+                pass
     return None
 
 def load_packet(file_path):
@@ -36,8 +42,17 @@ def resample_signal(signal, orig_sr, target_sr):
     else:
         return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
 
-def create_spectrogram(sig, sr, center_freq=0):
-    """יוצר ספקטוגרמה מהאות, תומך גם ב-center_freq"""
+def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
+    """יוצר ספקטוגרמה מהאות.
+
+    אם האות ארוך במיוחד, מתבצע דילול מהיר כדי להאיץ את החישוב.
+    """
+
+    if len(sig) > max_samples:
+        factor = int(np.ceil(len(sig) / max_samples))
+        sig = sig[::factor]
+        sr = sr / factor
+
     window_size = 1024
     overlap = window_size // 2
     nfft = 1024
@@ -51,6 +66,7 @@ def create_spectrogram(sig, sr, center_freq=0):
         return_onesided=False,
         detrend=False
     )
+
     freqs = np.fft.fftshift(freqs) + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
