@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.io import loadmat
+from utils import get_sample_rate_from_mat
 from scipy import signal
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -88,19 +89,22 @@ def main():
     original_file = 'vectors/OS40-5600-40-air3-5230.mat'
     original_data = loadmat(original_file)
     original_signal = original_data['Y'].flatten()
-    
+    original_sr = get_sample_rate_from_mat(original_file) or 56e6
+
     # ניתוח הקובץ המקורי
-    analyze_signal(original_signal, 56e6, 5230e6, 'original')
+    analyze_signal(original_signal, original_sr, 5230e6, 'original')
     
     # ניתוח הערוצים המסוננים
     channels = [5220, 5240]
     for freq in channels:
         # טעינת הקובץ
-        data = loadmat(f'vectors/channel_{freq}MHz.mat')
+        path = f'vectors/channel_{freq}MHz.mat'
+        data = loadmat(path)
         signal = data['Y'].flatten()
-        
+        sr = get_sample_rate_from_mat(path) or original_sr
+
         # ניתוח הערוץ
-        analyze_signal(signal, 56e6, 5230e6, f'{freq}MHz')
+        analyze_signal(signal, sr, 5230e6, f'{freq}MHz')
 
 if __name__ == '__main__':
     main() 
