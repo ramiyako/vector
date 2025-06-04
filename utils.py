@@ -97,7 +97,10 @@ def save_vector(vector, output_path):
 
 def generate_sample_packet(duration, sr, frequency, amplitude=1.0):
     """יוצר פקטה לדוגמה"""
-    t = np.linspace(0, duration, int(sr * duration))
+    # np.linspace כולל כברירת מחדל את נקודת הסיום, מה שגורם לדגימה אחת
+    # נוספת מעבר למספר המצופה (sr * duration). שימוש ב-endpoint=False מבטיח
+    # שמספר הדגימות יהיה בדיוק sr * duration והמרווח ביניהן יהיה 1/sr.
+    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     signal = amplitude * np.exp(2j * np.pi * frequency * t)
     return signal
 
