@@ -253,17 +253,18 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     state = {"drag": False, "value": packet_start}
 
     def _press(event):
-        if event.inaxes is not ax2:
+        if event.inaxes is not ax2 or event.xdata is None:
             return
         if abs(event.xdata - state["value"]) <= 5:
             state["drag"] = True
 
     def _move(event):
-        if not state["drag"] or event.inaxes is not ax2:
+        if not state["drag"] or event.inaxes is not ax2 or event.xdata is None:
             return
         x = int(event.xdata)
         x = max(0, min(len(signal) - 1, x))
         state["value"] = x
+        line1.set_xdata(x / sample_rate)
         line2.set_xdata(x)
         fig.canvas.draw_idle()
 
@@ -271,15 +272,15 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         if not state["drag"]:
             return
         state["drag"] = False
-        line1.set_xdata(state["value"] / sample_rate)
-        line2.set_xdata(state["value"])
         fig.canvas.draw_idle()
 
     def _key(event):
         key = event.key
-        if key in ("left", "right", "shift+left", "shift+right"):
-            step = 10 if key.startswith("shift") else 1
-            delta = -step if key.endswith("left") else step
+        if key is None:
+            return
+        if "left" in key or "right" in key:
+            step = 10 if "shift" in key else 1
+            delta = -step if "left" in key else step
             state["value"] = max(0, min(len(signal) - 1, state["value"] + delta))
             line1.set_xdata(state["value"] / sample_rate)
             line2.set_xdata(state["value"])
