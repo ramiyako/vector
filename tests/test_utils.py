@@ -4,7 +4,13 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils import generate_sample_packet, find_packet_start, apply_frequency_shift, create_spectrogram
+from utils import (
+    generate_sample_packet,
+    find_packet_start,
+    apply_frequency_shift,
+    create_spectrogram,
+    plot_spectrogram,
+)
 
 
 def test_generate_sample_packet_length():
@@ -74,4 +80,19 @@ def test_create_spectrogram_preserves_rate():
     sig = np.zeros(1_500_000, dtype=np.float32)
     f, _, _ = create_spectrogram(sig, sr)
     assert np.isclose(max(abs(f)), sr / 2, rtol=0.01)
+
+
+def test_plot_spectrogram_uses_full_range():
+    import matplotlib
+    matplotlib.use("Agg")
+    sr = 8000
+    sig = generate_sample_packet(0.1, sr, 1000)
+    f, t, Sxx = create_spectrogram(sig, sr, center_freq=500)
+    plot_spectrogram(f, t, Sxx, center_freq=500)
+    ax = matplotlib.pyplot.gcf().axes[0]
+    freq_axis = (f - 500) / 1e6
+    ylims = ax.get_ylim()
+    assert np.isclose(ylims[0], freq_axis.min())
+    assert np.isclose(ylims[1], freq_axis.max())
+    matplotlib.pyplot.close("all")
 

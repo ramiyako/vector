@@ -194,6 +194,7 @@ class VectorApp:
             vector_length = float(self.vector_length_var.get())
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
             vector = np.zeros(total_samples, dtype=np.complex64)
+            freq_shifts = []
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
@@ -210,6 +211,9 @@ class VectorApp:
                 # Frequency shift
                 if cfg['freq_shift'] != 0:
                     y = apply_frequency_shift(y, cfg['freq_shift'], TARGET_SAMPLE_RATE)
+                    freq_shifts.append(cfg['freq_shift'])
+                else:
+                    freq_shifts.append(0)
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
@@ -240,8 +244,11 @@ class VectorApp:
                     vector = vector / max_abs
                     
             save_vector(vector, 'data/output_vector.mat')
-            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE)
-            plot_spectrogram(f, t, Sxx, title='Final Vector Spectrogram')
+            center_freq = 0
+            if freq_shifts:
+                center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
+            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
+            plot_spectrogram(f, t, Sxx, title='Final Vector Spectrogram', center_freq=center_freq)
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Error: {e}")

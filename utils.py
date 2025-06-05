@@ -119,15 +119,14 @@ def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
-    im = ax1.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
+    freq_axis = (f - center_freq) / 1e6 if center_freq else f / 1e6
+    im = ax1.pcolormesh(t, freq_axis, Sxx_db, shading='nearest', cmap='viridis',
+                        norm=Normalize(vmin=vmin, vmax=vmax))
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
-    if center_freq:
-        ax1.set_ylim(-30, 30)
-        ax1.axhline(y=-20, color='r', linestyle='--', alpha=0.5)
-        ax1.axhline(y=20, color='r', linestyle='--', alpha=0.5)
+    ax1.set_ylim(freq_axis.min(), freq_axis.max())
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
