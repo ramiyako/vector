@@ -56,11 +56,18 @@ def resample_signal(signal, orig_sr, target_sr):
 
 
 def apply_frequency_shift(signal, freq_shift, sample_rate):
-    """Apply a positive or negative frequency shift to the signal."""
+    """Apply a positive or negative frequency shift to the signal.
+
+    The returned array is always ``complex64`` to avoid dtype inflation when the
+    input is real.
+    """
     if freq_shift == 0:
-        return signal
-    t = np.arange(len(signal)) / sample_rate
-    return signal * np.exp(2j * np.pi * freq_shift * t)
+        # Ensure a consistent complex dtype when no shift is requested
+        return signal.astype(np.complex64) if np.isrealobj(signal) else signal
+
+    t = np.arange(len(signal), dtype=np.float64) / sample_rate
+    shifted = signal.astype(np.complex64) * np.exp(2j * np.pi * freq_shift * t)
+    return shifted.astype(np.complex64)
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.

@@ -48,6 +48,26 @@ def test_apply_frequency_shift():
     freq_neg = _peak_frequency(shifted_neg, sr)
     assert abs(freq_neg - (base_freq - shift)) < 1
 
+    # dtype should always be complex64
+    assert shifted_pos.dtype == np.complex64
+    assert shifted_neg.dtype == np.complex64
+
+
+def _spectrogram_peak_frequency(sig, sr):
+    f, _, Sxx = create_spectrogram(sig, sr)
+    idx = np.unravel_index(np.argmax(np.abs(Sxx)), Sxx.shape)
+    return f[idx[0]]
+
+
+def test_spectrogram_reflects_shift():
+    sr = 8000
+    base_freq = 1000
+    shift = 500
+    sig = generate_sample_packet(0.1, sr, base_freq)
+    shifted = apply_frequency_shift(sig, shift, sr)
+    peak = _spectrogram_peak_frequency(shifted, sr)
+    assert abs(peak - (base_freq + shift)) < 2  # within a bin
+
 
 def test_create_spectrogram_preserves_rate():
     sr = 10_000_000
