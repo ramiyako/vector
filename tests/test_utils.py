@@ -103,9 +103,10 @@ def test_packet_markers_show_absolute_frequency():
     sr = 8000
     sig = generate_sample_packet(0.1, sr, 1000)
     f, t, Sxx = create_spectrogram(sig, sr, center_freq=500)
-    plot_spectrogram(f, t, Sxx, center_freq=500, packet_markers=[(0.0, 700)])
+    plot_spectrogram(f, t, Sxx, center_freq=500, packet_markers=[(0.0, 700, "pkt")])
     ax = matplotlib.pyplot.gcf().axes[0]
     line = ax.lines[0]
+    assert line.get_label() == "pkt"
     assert np.isclose(line.get_xdata()[0], 0.0)
     assert np.isclose(line.get_ydata()[0], 700 / 1e6)
     matplotlib.pyplot.close("all")

@@ -158,6 +158,7 @@ def plot_spectrogram(
     signal=None,
     packet_markers=None,
     freq_ranges=None,
+    show_colorbar=True,
 ):
     """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות.
 
@@ -224,16 +225,24 @@ def plot_spectrogram(
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
+    marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
     if packet_markers:
-        for tm, freq in packet_markers:
-            ax1.plot(tm, freq / 1e6, 'rx')
+        for idx, marker in enumerate(packet_markers):
+            if len(marker) == 3:
+                tm, freq, label = marker
+            else:
+                tm, freq = marker[:2]
+                label = None
+            style = marker_styles[idx % len(marker_styles)]
+            ax1.plot(tm, freq / 1e6, style, label=label)
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
-    if freq_ranges:
-        plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
-    else:
-        plt.colorbar(im, ax=ax1, label='Power [dB]')
+    if show_colorbar:
+        if freq_ranges:
+            plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
+        else:
+            plt.colorbar(im, ax=ax1, label='Power [dB]')
 
     if signal is not None and not freq_ranges:
         ax2.plot(np.abs(signal))
@@ -244,6 +253,9 @@ def plot_spectrogram(
         ax2.set_ylabel('Amplitude')
         ax2.legend()
         ax2.grid(True)
+
+    if packet_markers:
+        ax1.legend()
 
     plt.tight_layout()
     plt.show()

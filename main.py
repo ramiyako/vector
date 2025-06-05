@@ -233,7 +233,7 @@ class VectorApp:
                     else:
                         y_to_add = y
                     vector[start:start + len(y_to_add)] += y_to_add
-                    markers.append((start / TARGET_SAMPLE_RATE, cfg['freq_shift']))
+                    markers.append((start / TARGET_SAMPLE_RATE, cfg['freq_shift'], f"Packet {idx+1}"))
 
             # Debug
             print("Vector abs sum:", np.abs(vector).sum())
@@ -260,6 +260,7 @@ class VectorApp:
                 center_freq=center_freq,
                 packet_markers=markers,
                 freq_ranges=ranges,
+                show_colorbar=False,
             )
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:
