@@ -224,10 +224,11 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
-    """מציג ספקטוגרמה עם קו ניתן להזזה לתיקון מיקום תחילת הפקטה.
+    """GUI לתיקון נקודת התחלה של פקטה.
 
-    המשתמש יכול לגרור את הקו האדום ובסיום (סגירת החלון) יוחזר המיקום החדש
-    בדגימות.
+    מוצגת ספקטוגרמה וגרף עוצמה. ניתן לגרור את הקו האדום על הגרף התחתון
+    או להשתמש בחיצים (<- ->) להזזה בדילוגים קטנים (Shift לחיצות של 10).
+    בסגירת החלון מוחזר מיקום ההתחלה המעודכן בדגימות.
     """
 
     f, t, Sxx = create_spectrogram(signal, sample_rate)
@@ -235,45 +236,59 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
-    ax1.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-    ax1.set_title('Spectrogram - drag the red line to adjust start')
-    ax1.set_xlabel('Time [s]')
-    ax1.set_ylabel('Frequency [MHz]')
+    ax1.pcolormesh(t, f / 1e6, Sxx_db, shading="nearest", cmap="viridis", vmin=vmin, vmax=vmax)
+    ax1.set_title("Spectrogram")
+    ax1.set_xlabel("Time [s]")
+    ax1.set_ylabel("Frequency [MHz]")
     ax1.grid(True)
 
     ax2.plot(np.abs(signal))
-    ax2.set_xlabel('Samples')
-    ax2.set_ylabel('Amplitude')
+    ax2.set_xlabel("Samples")
+    ax2.set_ylabel("Amplitude")
     ax2.grid(True)
 
-    line1 = ax1.axvline(packet_start / sample_rate, color='r', linestyle='--')
-    line2 = ax2.axvline(packet_start, color='r', linestyle='--')
+    line1 = ax1.axvline(packet_start / sample_rate, color="r", linestyle="--")
+    line2 = ax2.axvline(packet_start, color="r", linestyle="--")
 
-    state = {'drag': False, 'value': packet_start}
+    state = {"drag": False, "value": packet_start}
 
     def _press(event):
-        if event.inaxes not in (ax1, ax2):
+        if event.inaxes is not ax2:
             return
-        x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
-        if abs(x - state['value']) < sample_rate * 0.01:
-            state['drag'] = True
+        if abs(event.xdata - state["value"]) <= 5:
+            state["drag"] = True
 
     def _move(event):
-        if not state['drag'] or event.inaxes not in (ax1, ax2):
+        if not state["drag"] or event.inaxes is not ax2:
             return
-        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
-        x = max(0, min(len(signal)-1, x))
-        state['value'] = x
-        line1.set_xdata(x / sample_rate)
+        x = int(event.xdata)
+        x = max(0, min(len(signal) - 1, x))
+        state["value"] = x
         line2.set_xdata(x)
         fig.canvas.draw_idle()
 
     def _release(event):
-        state['drag'] = False
+        if not state["drag"]:
+            return
+        state["drag"] = False
+        line1.set_xdata(state["value"] / sample_rate)
+        line2.set_xdata(state["value"])
+        fig.canvas.draw_idle()
 
-    cid_press = fig.canvas.mpl_connect('button_press_event', _press)
-    cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
-    cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
+    def _key(event):
+        key = event.key
+        if key in ("left", "right", "shift+left", "shift+right"):
+            step = 10 if key.startswith("shift") else 1
+            delta = -step if key.endswith("left") else step
+            state["value"] = max(0, min(len(signal) - 1, state["value"] + delta))
+            line1.set_xdata(state["value"] / sample_rate)
+            line2.set_xdata(state["value"])
+            fig.canvas.draw_idle()
+
+    cid_press = fig.canvas.mpl_connect("button_press_event", _press)
+    cid_move = fig.canvas.mpl_connect("motion_notify_event", _move)
+    cid_rel = fig.canvas.mpl_connect("button_release_event", _release)
+    cid_key = fig.canvas.mpl_connect("key_press_event", _key)
 
     plt.tight_layout()
     plt.show()
@@ -281,5 +296,6 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
     fig.canvas.mpl_disconnect(cid_rel)
+    fig.canvas.mpl_disconnect(cid_key)
 
-    return state['value']
+    return state["value"]
