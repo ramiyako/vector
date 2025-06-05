@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 from scipy import signal
 import matplotlib as mpl
 from matplotlib.colors import Normalize
+import warnings
+try:
+    from brokenaxes import brokenaxes
+except ImportError:  # pragma: no cover - optional dependency
+    brokenaxes = None
 
 # הגדרת כיוון RTL לטקסט בעברית
 plt.rcParams['font.family'] = 'Arial'
@@ -54,6 +59,50 @@ def resample_signal(signal, orig_sr, target_sr):
     else:
         return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
 
+
+def apply_frequency_shift(signal, freq_shift, sample_rate):
+    """Apply a positive or negative frequency shift to the signal.
+
+    The returned array is always ``complex64`` to avoid dtype inflation when the
+    input is real.
+    """
+    if freq_shift == 0:
+        # Ensure a consistent complex dtype when no shift is requested
+        return signal.astype(np.complex64) if np.isrealobj(signal) else signal
+
+    t = np.arange(len(signal), dtype=np.float64) / sample_rate
+    shifted = signal.astype(np.complex64) * np.exp(2j * np.pi * freq_shift * t)
+    return shifted.astype(np.complex64)
+
+
+def compute_freq_ranges(shifts, margin=1e6):
+    """Return merged frequency ranges around each shift.
+
+    Parameters
+    ----------
+    shifts : list of float
+        The frequency shift values in Hz.
+    margin : float, optional
+        Extra bandwidth (Hz) to include around each shift.
+
+    Returns
+    -------
+    list of (float, float)
+        List of (start, end) ranges in Hz or ``None`` if no shifts.
+    """
+    if not shifts:
+        return None
+    values = sorted(set(shifts))
+    ranges = []
+    for freq in values:
+        start = freq - margin
+        end = freq + margin
+        if ranges and start <= ranges[-1][1]:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+        else:
+            ranges.append((start, end))
+    return ranges
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
@@ -63,14 +112,17 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
-        sr = sr / factor
+        fs = sr / factor
+    else:
+        factor = 1
+        fs = sr
 
     window_size = 1024
     overlap = window_size // 2
     nfft = 1024
     freqs, times, Sxx = signal.spectrogram(
         sig,
-        fs=sr,
+        fs=fs,
         window='hann',
         nperseg=window_size,
         noverlap=overlap,
@@ -79,7 +131,7 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         detrend=False
     )
 
-    freqs = np.fft.fftshift(freqs) + center_freq
+    freqs = np.fft.fftshift(freqs) * factor + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
@@ -95,28 +147,95 @@ def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic
         vmin = vmax - max_dynamic_range
     return Sxx_db, vmin, vmax
 
-def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start=None, sample_rate=None, signal=None):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz, וגרף אות עם סימון תחילת פקטה"""
+def plot_spectrogram(
+    f,
+    t,
+    Sxx,
+    center_freq=0,
+    title='Spectrogram',
+    packet_start=None,
+    sample_rate=None,
+    signal=None,
+    packet_markers=None,
+    freq_ranges=None,
+):
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות.
+
+    Parameters
+    ----------
+    f, t, Sxx : arrays
+        תוצרי ``create_spectrogram``.
+    center_freq : float, optional
+        תדר מרכזי ששימש בחישוב הספקטרוגרמה. הציר מוצג תמיד בתדר מוחלט
+        (MHz), ולכן הפרמטר נדרש רק לחישובים פנימיים.
+    title : str
+        כותרת הגרף.
+    packet_start : int or None
+        דגימה המסמנת את תחילת הפקטה (לשרטוט בקו אנכי).
+    sample_rate : float or None
+        קצב הדגימה של האות לצורך המרת מיקום הפקטה לזמן.
+    signal : array or None
+        האות המקורי להצגה בחלון התחתון.
+    packet_markers : list of (time, freq)
+        נקודות זמן (שניות) ותדרים (Hz) לסימון על הספקטרוגרמה.
+    freq_ranges : list of (f_low, f_high), optional
+        אם מצוין, מתווה הספקטרוגרמה בעזרת ציר שבור המאפשר דילוג על תחומי
+        תדר ללא עניין.
+    """
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    freq_axis = f / 1e6
 
-    im = ax1.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
+    if freq_ranges:
+        if brokenaxes is None:
+            warnings.warn(
+                "brokenaxes is not installed; displaying full frequency range"
+            )
+            freq_ranges = None
+        else:
+            ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
+            fig = plt.figure(figsize=(12, 6))
+            ax1 = brokenaxes(ylims=ylims, hspace=0.05)
+            im = ax1.pcolormesh(
+                t,
+                freq_axis,
+                Sxx_db,
+                shading='nearest',
+                cmap='viridis',
+                norm=Normalize(vmin=vmin, vmax=vmax),
+            )
+    else:
+        if signal is not None:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+        else:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            ax2 = None
+        im = ax1.pcolormesh(
+            t,
+            freq_axis,
+            Sxx_db,
+            shading='nearest',
+            cmap='viridis',
+            norm=Normalize(vmin=vmin, vmax=vmax),
+        )
+        ax1.set_ylim(freq_axis.min(), freq_axis.max())
+
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
-    if center_freq:
-        ax1.set_ylim(-30, 30)
-        ax1.axhline(y=-20, color='r', linestyle='--', alpha=0.5)
-        ax1.axhline(y=20, color='r', linestyle='--', alpha=0.5)
+    if packet_markers:
+        for tm, freq in packet_markers:
+            ax1.plot(tm, freq / 1e6, 'rx')
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
-    plt.colorbar(im, ax=ax1, label='Power [dB]')
+    if freq_ranges:
+        plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
+    else:
+        plt.colorbar(im, ax=ax1, label='Power [dB]')
 
-    # גרף האות
-    if signal is not None:
+    if signal is not None and not freq_ranges:
         ax2.plot(np.abs(signal))
         if packet_start is not None:
             ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
