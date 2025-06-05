@@ -5,7 +5,11 @@ import matplotlib.pyplot as plt
 from scipy import signal
 import matplotlib as mpl
 from matplotlib.colors import Normalize
-from brokenaxes import brokenaxes
+import warnings
+try:
+    from brokenaxes import brokenaxes
+except ImportError:  # pragma: no cover - optional dependency
+    brokenaxes = None
 
 # הגדרת כיוון RTL לטקסט בעברית
 plt.rcParams['font.family'] = 'Arial'
@@ -183,17 +187,23 @@ def plot_spectrogram(
     freq_axis = f / 1e6
 
     if freq_ranges:
-        ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
-        fig = plt.figure(figsize=(12, 6))
-        ax1 = brokenaxes(ylims=ylims, hspace=0.05)
-        im = ax1.pcolormesh(
-            t,
-            freq_axis,
-            Sxx_db,
-            shading='nearest',
-            cmap='viridis',
-            norm=Normalize(vmin=vmin, vmax=vmax),
-        )
+        if brokenaxes is None:
+            warnings.warn(
+                "brokenaxes is not installed; displaying full frequency range"
+            )
+            freq_ranges = None
+        else:
+            ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
+            fig = plt.figure(figsize=(12, 6))
+            ax1 = brokenaxes(ylims=ylims, hspace=0.05)
+            im = ax1.pcolormesh(
+                t,
+                freq_axis,
+                Sxx_db,
+                shading='nearest',
+                cmap='viridis',
+                norm=Normalize(vmin=vmin, vmax=vmax),
+            )
     else:
         if signal is not None:
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
