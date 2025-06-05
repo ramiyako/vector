@@ -54,6 +54,14 @@ def resample_signal(signal, orig_sr, target_sr):
     else:
         return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
 
+
+def apply_frequency_shift(signal, freq_shift, sample_rate):
+    """Apply a positive or negative frequency shift to the signal."""
+    if freq_shift == 0:
+        return signal
+    t = np.arange(len(signal)) / sample_rate
+    return signal * np.exp(2j * np.pi * freq_shift * t)
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
@@ -63,14 +71,17 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
-        sr = sr / factor
+        fs = sr / factor
+    else:
+        factor = 1
+        fs = sr
 
     window_size = 1024
     overlap = window_size // 2
     nfft = 1024
     freqs, times, Sxx = signal.spectrogram(
         sig,
-        fs=sr,
+        fs=fs,
         window='hann',
         nperseg=window_size,
         noverlap=overlap,
@@ -79,7 +90,7 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         detrend=False
     )
 
-    freqs = np.fft.fftshift(freqs) + center_freq
+    freqs = np.fft.fftshift(freqs) * factor + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 

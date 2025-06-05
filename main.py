@@ -2,7 +2,15 @@ import os
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, BooleanVar
-from utils import load_packet, resample_signal, create_spectrogram, plot_spectrogram, save_vector, get_sample_rate_from_mat
+from utils import (
+    load_packet,
+    resample_signal,
+    create_spectrogram,
+    plot_spectrogram,
+    save_vector,
+    get_sample_rate_from_mat,
+    apply_frequency_shift,
+)
 
 MAX_PACKETS = 6
 TARGET_SAMPLE_RATE = 10e6  # 10 MHz
@@ -201,8 +209,7 @@ class VectorApp:
                 
                 # Frequency shift
                 if cfg['freq_shift'] != 0:
-                    t = np.arange(len(y)) / TARGET_SAMPLE_RATE
-                    y = y * np.exp(2j * np.pi * cfg['freq_shift'] * t)
+                    y = apply_frequency_shift(y, cfg['freq_shift'], TARGET_SAMPLE_RATE)
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
