@@ -110,3 +110,28 @@ def test_packet_markers_show_absolute_frequency():
     assert np.isclose(line.get_ydata()[0], 700 / 1e6)
     matplotlib.pyplot.close("all")
 
+
+def test_plot_spectrogram_without_signal_has_single_axis():
+    import matplotlib
+    matplotlib.use("Agg")
+    sr = 8000
+    sig = generate_sample_packet(0.1, sr, 1000)
+    f, t, Sxx = create_spectrogram(sig, sr)
+    plot_spectrogram(f, t, Sxx)
+    fig = matplotlib.pyplot.gcf()
+    axes_without_cb = [ax for ax in fig.axes if ax.get_ylabel() != 'Power [dB]']
+    assert len(axes_without_cb) == 1
+    matplotlib.pyplot.close("all")
+
+
+def test_broken_axis_ranges():
+    import matplotlib
+    matplotlib.use("Agg")
+    sr = 8000
+    sig = generate_sample_packet(0.1, sr, 1000)
+    f, t, Sxx = create_spectrogram(sig, sr)
+    plot_spectrogram(f, t, Sxx, freq_ranges=[(900, 1100), (1500, 1700)])
+    fig = matplotlib.pyplot.gcf()
+    assert len(fig.axes) >= 2
+    matplotlib.pyplot.close("all")
+

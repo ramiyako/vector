@@ -10,6 +10,7 @@ from utils import (
     save_vector,
     get_sample_rate_from_mat,
     apply_frequency_shift,
+    compute_freq_ranges,
 )
 
 MAX_PACKETS = 6
@@ -250,6 +251,7 @@ class VectorApp:
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
             f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
+            ranges = compute_freq_ranges(freq_shifts)
             plot_spectrogram(
                 f,
                 t,
@@ -257,6 +259,7 @@ class VectorApp:
                 title='Final Vector Spectrogram',
                 center_freq=center_freq,
                 packet_markers=markers,
+                freq_ranges=ranges,
             )
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:
