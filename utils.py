@@ -131,7 +131,8 @@ def plot_spectrogram(
     f, t, Sxx : arrays
         תוצרי ``create_spectrogram``.
     center_freq : float, optional
-        תדר מרכזי להצגה ב-Hz.
+        תדר מרכזי ששימש בחישוב הספקטרוגרמה. הציר מוצג תמיד בתדר מוחלט
+        (MHz), ולכן הפרמטר נדרש רק לחישובים פנימיים.
     title : str
         כותרת הגרף.
     packet_start : int or None
@@ -147,9 +148,15 @@ def plot_spectrogram(
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
-    freq_axis = (f - center_freq) / 1e6 if center_freq else f / 1e6
-    im = ax1.pcolormesh(t, freq_axis, Sxx_db, shading='nearest', cmap='viridis',
-                        norm=Normalize(vmin=vmin, vmax=vmax))
+    freq_axis = f / 1e6
+    im = ax1.pcolormesh(
+        t,
+        freq_axis,
+        Sxx_db,
+        shading='nearest',
+        cmap='viridis',
+        norm=Normalize(vmin=vmin, vmax=vmax),
+    )
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
@@ -157,8 +164,7 @@ def plot_spectrogram(
     ax1.set_ylim(freq_axis.min(), freq_axis.max())
     if packet_markers:
         for tm, freq in packet_markers:
-            yval = (freq - center_freq) / 1e6 if center_freq else freq / 1e6
-            ax1.plot(tm, yval, 'rx')
+            ax1.plot(tm, freq / 1e6, 'rx')
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')

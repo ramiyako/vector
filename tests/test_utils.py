@@ -90,9 +90,23 @@ def test_plot_spectrogram_uses_full_range():
     f, t, Sxx = create_spectrogram(sig, sr, center_freq=500)
     plot_spectrogram(f, t, Sxx, center_freq=500)
     ax = matplotlib.pyplot.gcf().axes[0]
-    freq_axis = (f - 500) / 1e6
+    freq_axis = f / 1e6
     ylims = ax.get_ylim()
     assert np.isclose(ylims[0], freq_axis.min())
     assert np.isclose(ylims[1], freq_axis.max())
+    matplotlib.pyplot.close("all")
+
+
+def test_packet_markers_show_absolute_frequency():
+    import matplotlib
+    matplotlib.use("Agg")
+    sr = 8000
+    sig = generate_sample_packet(0.1, sr, 1000)
+    f, t, Sxx = create_spectrogram(sig, sr, center_freq=500)
+    plot_spectrogram(f, t, Sxx, center_freq=500, packet_markers=[(0.0, 700)])
+    ax = matplotlib.pyplot.gcf().axes[0]
+    line = ax.lines[0]
+    assert np.isclose(line.get_xdata()[0], 0.0)
+    assert np.isclose(line.get_ydata()[0], 700 / 1e6)
     matplotlib.pyplot.close("all")
 
