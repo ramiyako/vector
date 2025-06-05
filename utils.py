@@ -160,27 +160,31 @@ def create_sample_packets():
     
     return packets 
 
-def find_packet_start(signal, template=None, threshold=0.8):
+def find_packet_start(signal, template=None, threshold_ratio=0.2, window_size=None):
+    """מוצא את תחילת הפקטה באות.
+
+    אם ניתנת תבנית, מתבצעת קורלציה ומחושב המיקום המתאים ביותר. אחרת
+    נבנה מעטפת אנרגיה מוחלקת ועל פיה נקבע מיקום תחילת הפקטה.``threshold_ratio``
+    מגדיר את העוצמה היחסית (בין רמת הרעש למקסימום) שמעליה נחשב שהחלה הפקטה.
     """
-    מוצא את תחילת הפקטה האמיתית באות
-    
-    Args:
-        signal: האות המלא
-        template: תבנית החיפוש (אם None, משתמש בשינוי אנרגיה)
-        threshold: סף הקורלציה או האנרגיה
-    
-    Returns:
-        index: האינדקס של תחילת הפקטה
-    """
+
     if template is not None:
-        # חיפוש באמצעות קורלציה
-        correlation = np.correlate(np.abs(signal), np.abs(template), mode='valid')
-        return np.argmax(correlation)
-    else:
-        # חיפוש באמצעות שינוי אנרגיה
-        energy = np.abs(signal) ** 2
-        energy_diff = np.diff(energy)
-        return np.argmax(energy_diff > threshold * np.max(energy_diff))
+        correlation = np.correlate(np.abs(signal), np.abs(template), mode="valid")
+        return int(np.argmax(correlation))
+
+    # מעטפת אנרגיה עם החלקה
+    energy = np.abs(signal) ** 2
+    if window_size is None:
+        window_size = max(1, int(0.02 * len(signal)))
+    window = np.ones(max(1, window_size)) / max(1, window_size)
+    smoothed = np.convolve(energy, window, mode="same")
+
+    noise_level = np.median(smoothed[: len(smoothed) // 10])
+    max_energy = np.max(smoothed)
+    threshold = noise_level + threshold_ratio * (max_energy - noise_level)
+
+    indices = np.where(smoothed >= threshold)[0]
+    return int(indices[0]) if len(indices) > 0 else 0
 
 def measure_packet_timing(signal, template=None):
     """
@@ -217,4 +221,65 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.ylabel('Amplitude')
     plt.legend()
     plt.grid(True)
-    plt.show() 
+    plt.show()
+
+def adjust_packet_start_gui(signal, sample_rate, packet_start):
+    """מציג ספקטוגרמה עם קו ניתן להזזה לתיקון מיקום תחילת הפקטה.
+
+    המשתמש יכול לגרור את הקו האדום ובסיום (סגירת החלון) יוחזר המיקום החדש
+    בדגימות.
+    """
+
+    f, t, Sxx = create_spectrogram(signal, sample_rate)
+    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+
+    ax1.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_title('Spectrogram - drag the red line to adjust start')
+    ax1.set_xlabel('Time [s]')
+    ax1.set_ylabel('Frequency [MHz]')
+    ax1.grid(True)
+
+    ax2.plot(np.abs(signal))
+    ax2.set_xlabel('Samples')
+    ax2.set_ylabel('Amplitude')
+    ax2.grid(True)
+
+    line1 = ax1.axvline(packet_start / sample_rate, color='r', linestyle='--')
+    line2 = ax2.axvline(packet_start, color='r', linestyle='--')
+
+    state = {'drag': False, 'value': packet_start}
+
+    def _press(event):
+        if event.inaxes not in (ax1, ax2):
+            return
+        x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
+        if abs(x - state['value']) < sample_rate * 0.01:
+            state['drag'] = True
+
+    def _move(event):
+        if not state['drag'] or event.inaxes not in (ax1, ax2):
+            return
+        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
+        x = max(0, min(len(signal)-1, x))
+        state['value'] = x
+        line1.set_xdata(x / sample_rate)
+        line2.set_xdata(x)
+        fig.canvas.draw_idle()
+
+    def _release(event):
+        state['drag'] = False
+
+    cid_press = fig.canvas.mpl_connect('button_press_event', _press)
+    cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
+    cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
+
+    plt.tight_layout()
+    plt.show()
+
+    fig.canvas.mpl_disconnect(cid_press)
+    fig.canvas.mpl_disconnect(cid_move)
+    fig.canvas.mpl_disconnect(cid_rel)
+
+    return state['value']

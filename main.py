@@ -95,22 +95,23 @@ class PacketConfig:
             messagebox.showerror("Error", f"Error showing spectrogram: {e}")
 
     def analyze_packet(self):
-        from utils import load_packet, find_packet_start, measure_packet_timing, plot_packet_with_markers
+        from utils import load_packet, find_packet_start, measure_packet_timing, adjust_packet_start_gui
         file_path = self.file_var.get()
         try:
             y = load_packet(file_path)
             packet_start = find_packet_start(y)
             pre_samples, _, _ = measure_packet_timing(y)
-            
-            # עדכון הממשק
-            self.pre_samples_var.set(str(pre_samples))
-            
-            # הצגת התוצאות
+
             sample_rate = self.sample_rate
             if sample_rate is None:
                 from tkinter import messagebox
                 messagebox.showerror("Error", "Sample rate not found")
                 return
+
+            packet_start = adjust_packet_start_gui(y, sample_rate, packet_start)
+            pre_samples = packet_start
+            self.pre_samples_var.set(str(pre_samples))
+
             f, t, Sxx = create_spectrogram(y, sample_rate)
             plot_spectrogram(f, t, Sxx, title=f"Packet Analysis - {file_path}", packet_start=packet_start, sample_rate=sample_rate, signal=y)
             
