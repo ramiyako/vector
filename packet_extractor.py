@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from matplotlib.widgets import RectangleSelector
+from matplotlib.widgets import SpanSelector
 import tkinter as tk
 from tkinter import filedialog, ttk
 from utils import create_spectrogram, plot_spectrogram, get_sample_rate_from_mat, normalize_spectrogram
@@ -82,18 +82,15 @@ class PacketExtractor:
             ax.set_ylabel('Frequency [MHz]')
             ax.grid(True)
             
-            # הוספת RectangleSelector
-            def line_select_callback(eclick, erelease):
-                self.start_sample = int(eclick.xdata * sample_rate)
-                self.end_sample = int(erelease.xdata * sample_rate)
+            # בחירה רק בציר הזמן באמצעות SpanSelector
+            def onselect(xmin, xmax):
+                self.start_sample = int(xmin * sample_rate)
+                self.end_sample = int(xmax * sample_rate)
                 plt.close()
-                
-            rs = RectangleSelector(ax, line_select_callback,
-                                 useblit=True,
-                                 button=[1],
-                                 minspanx=5, minspany=5,
-                                 spancoords='pixels',
-                                 interactive=True)
+
+            span = SpanSelector(ax, onselect, 'horizontal',
+                                useblit=True,
+                                minspan=5 / sample_rate)
             
             plt.show()
             
