@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import scipy.io as sio
 import librosa
@@ -36,10 +37,26 @@ def get_sample_rate_from_mat(file_path):
     return None
 
 def load_packet(file_path):
-    """טוען פקטה מקובץ .mat ומחזיר תמיד np.complex64 או np.float32"""
-    data = sio.loadmat(file_path)
-    y = data['Y'].flatten()
-    # המרה לסוג מתאים
+    """טוען פקטה מקובץ .mat.
+
+    כדי להאיץ את הטעינה, אם קיים קובץ ``.npy`` תואם נוצרת טעינה מהירה
+    באמצעות ``numpy.load``. אם הקובץ לא קיים, הוא נוצר אוטומטית לאחר
+    טעינת ה-``.mat`` כך שהטעינות הבאות יהיו זריזות יותר.
+    """
+    cache_path = file_path + ".npy"
+    if os.path.exists(cache_path):
+        y = np.load(cache_path, mmap_mode="r")
+    else:
+        data = sio.loadmat(file_path)
+        y = data['Y'].flatten()
+        if np.iscomplexobj(y):
+            y = y.astype(np.complex64)
+        else:
+            y = y.astype(np.float32)
+        try:
+            np.save(cache_path, y)
+        except Exception:
+            pass
     if np.iscomplexobj(y):
         return y.astype(np.complex64)
     else:
