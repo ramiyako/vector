@@ -195,6 +195,7 @@ class VectorApp:
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
             vector = np.zeros(total_samples, dtype=np.complex64)
             freq_shifts = []
+            markers = []
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
@@ -227,10 +228,11 @@ class VectorApp:
                     if start >= total_samples:
                         break
                     if end > total_samples:
-                        y_to_add = y[:total_samples - start]
+                        y_to_add = y[: total_samples - start]
                     else:
                         y_to_add = y
                     vector[start:start + len(y_to_add)] += y_to_add
+                    markers.append((start / TARGET_SAMPLE_RATE, cfg['freq_shift']))
 
             # Debug
             print("Vector abs sum:", np.abs(vector).sum())
@@ -248,7 +250,14 @@ class VectorApp:
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
             f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
-            plot_spectrogram(f, t, Sxx, title='Final Vector Spectrogram', center_freq=center_freq)
+            plot_spectrogram(
+                f,
+                t,
+                Sxx,
+                title='Final Vector Spectrogram',
+                center_freq=center_freq,
+                packet_markers=markers,
+            )
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Error: {e}")

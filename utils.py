@@ -113,8 +113,36 @@ def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic
         vmin = vmax - max_dynamic_range
     return Sxx_db, vmin, vmax
 
-def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start=None, sample_rate=None, signal=None):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz, וגרף אות עם סימון תחילת פקטה"""
+def plot_spectrogram(
+    f,
+    t,
+    Sxx,
+    center_freq=0,
+    title='Spectrogram',
+    packet_start=None,
+    sample_rate=None,
+    signal=None,
+    packet_markers=None,
+):
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות.
+
+    Parameters
+    ----------
+    f, t, Sxx : arrays
+        תוצרי ``create_spectrogram``.
+    center_freq : float, optional
+        תדר מרכזי להצגה ב-Hz.
+    title : str
+        כותרת הגרף.
+    packet_start : int or None
+        דגימה המסמנת את תחילת הפקטה (לשרטוט בקו אנכי).
+    sample_rate : float or None
+        קצב הדגימה של האות לצורך המרת מיקום הפקטה לזמן.
+    signal : array or None
+        האות המקורי להצגה בחלון התחתון.
+    packet_markers : list of (time, freq)
+        נקודות זמן (שניות) ותדרים (Hz) לסימון על הספקטרוגרמה.
+    """
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
@@ -127,6 +155,10 @@ def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
     ax1.set_ylim(freq_axis.min(), freq_axis.max())
+    if packet_markers:
+        for tm, freq in packet_markers:
+            yval = (freq - center_freq) / 1e6 if center_freq else freq / 1e6
+            ax1.plot(tm, yval, 'rx')
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
