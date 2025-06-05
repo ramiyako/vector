@@ -65,9 +65,9 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         sig = sig[::factor]
         sr = sr / factor
 
-    window_size = 1024
-    overlap = window_size // 2
-    nfft = 1024
+    window_size = min(1024, len(sig))
+    overlap = min(window_size // 2, window_size - 1)
+    nfft = max(1024, 2 ** int(np.ceil(np.log2(window_size))))
     freqs, times, Sxx = signal.spectrogram(
         sig,
         fs=sr,
@@ -255,7 +255,7 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     def _press(event):
         if event.inaxes is not ax2 or event.xdata is None:
             return
-        if abs(event.xdata - state["value"]) <= 5:
+        if abs(event.xdata - state["value"]) <= 10:
             state["drag"] = True
 
     def _move(event):
