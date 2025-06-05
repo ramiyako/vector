@@ -56,6 +56,11 @@ class PacketConfig:
         self.pre_samples_var = tk.StringVar(value="0")
         ttk.Entry(self.frame, textvariable=self.pre_samples_var, width=10).grid(row=4, column=1, sticky=tk.W)
 
+        # Start time offset (ms) relative to first packet
+        ttk.Label(self.frame, text="Start time offset (ms):").grid(row=5, column=0, sticky=tk.W)
+        self.start_time_var = tk.StringVar(value="0")
+        ttk.Entry(self.frame, textvariable=self.start_time_var, width=10).grid(row=5, column=1, sticky=tk.W)
+
     def on_file_selected(self, event=None):
         """מעדכן את קצב הדגימה אוטומטית כשנבחר קובץ"""
         file_path = self.file_var.get()
@@ -74,7 +79,8 @@ class PacketConfig:
             'sample_rate': self.sample_rate,
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
             'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
-            'pre_samples': int(self.pre_samples_var.get())
+            'pre_samples': int(self.pre_samples_var.get()),
+            'start_time': float(self.start_time_var.get()) / 1000.0  # ms to seconds
         }
 
     def show_spectrogram(self):
@@ -200,9 +206,12 @@ class VectorApp:
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
-                
-                # Insert packet from the beginning in every period
-                for start in range(0, total_samples, period_samples):
+
+                # Time offset of first insertion in samples relative to start of vector
+                start_offset = int(round(cfg['start_time'] * TARGET_SAMPLE_RATE))
+
+                # Insert packet at the specified offset and every period thereafter
+                for start in range(start_offset, total_samples, period_samples):
                     end = start + len(y)
                     if start >= total_samples:
                         break
