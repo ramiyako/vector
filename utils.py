@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 from scipy import signal
 import matplotlib as mpl
 from matplotlib.colors import Normalize
+import warnings
+try:
+    from brokenaxes import brokenaxes
+except ImportError:  # pragma: no cover - optional dependency
+    brokenaxes = None
 
 # הגדרת כיוון RTL לטקסט בעברית
 plt.rcParams['font.family'] = 'Arial'
@@ -54,6 +59,50 @@ def resample_signal(signal, orig_sr, target_sr):
     else:
         return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
 
+
+def apply_frequency_shift(signal, freq_shift, sample_rate):
+    """Apply a positive or negative frequency shift to the signal.
+
+    The returned array is always ``complex64`` to avoid dtype inflation when the
+    input is real.
+    """
+    if freq_shift == 0:
+        # Ensure a consistent complex dtype when no shift is requested
+        return signal.astype(np.complex64) if np.isrealobj(signal) else signal
+
+    t = np.arange(len(signal), dtype=np.float64) / sample_rate
+    shifted = signal.astype(np.complex64) * np.exp(2j * np.pi * freq_shift * t)
+    return shifted.astype(np.complex64)
+
+
+def compute_freq_ranges(shifts, margin=1e6):
+    """Return merged frequency ranges around each shift.
+
+    Parameters
+    ----------
+    shifts : list of float
+        The frequency shift values in Hz.
+    margin : float, optional
+        Extra bandwidth (Hz) to include around each shift.
+
+    Returns
+    -------
+    list of (float, float)
+        List of (start, end) ranges in Hz or ``None`` if no shifts.
+    """
+    if not shifts:
+        return None
+    values = sorted(set(shifts))
+    ranges = []
+    for freq in values:
+        start = freq - margin
+        end = freq + margin
+        if ranges and start <= ranges[-1][1]:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+        else:
+            ranges.append((start, end))
+    return ranges
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
@@ -63,14 +112,17 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
-        sr = sr / factor
+        fs = sr / factor
+    else:
+        factor = 1
+        fs = sr
 
     window_size = 1024
     overlap = window_size // 2
     nfft = 1024
     freqs, times, Sxx = signal.spectrogram(
         sig,
-        fs=sr,
+        fs=fs,
         window='hann',
         nperseg=window_size,
         noverlap=overlap,
@@ -79,7 +131,7 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         detrend=False
     )
 
-    freqs = np.fft.fftshift(freqs) + center_freq
+    freqs = np.fft.fftshift(freqs) * factor + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
@@ -95,28 +147,121 @@ def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic
         vmin = vmax - max_dynamic_range
     return Sxx_db, vmin, vmax
 
-def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start=None, sample_rate=None, signal=None):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz, וגרף אות עם סימון תחילת פקטה"""
+def plot_spectrogram(
+    f,
+    t,
+    Sxx,
+    center_freq=0,
+    title='Spectrogram',
+    packet_start=None,
+    sample_rate=None,
+    signal=None,
+    packet_markers=None,
+    freq_ranges=None,
+    show_colorbar=True,
+):
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות.
+
+    Parameters
+    ----------
+    f, t, Sxx : arrays
+        תוצרי ``create_spectrogram``.
+    center_freq : float, optional
+        תדר מרכזי ששימש בחישוב הספקטרוגרמה. הציר מוצג תמיד בתדר מוחלט
+        (MHz), ולכן הפרמטר נדרש רק לחישובים פנימיים.
+    title : str
+        כותרת הגרף.
+    packet_start : int or None
+        דגימה המסמנת את תחילת הפקטה (לשרטוט בקו אנכי).
+    sample_rate : float or None
+        קצב הדגימה של האות לצורך המרת מיקום הפקטה לזמן.
+    signal : array or None
+        האות המקורי להצגה בחלון התחתון.
+    packet_markers : list
+        רשימת סמנים. כל סמן הוא ``(time, freq, label[, style])`` כאשר ``style``
+        הוא סימון matplotlib לתצוגה (למשל ``'x'``). אם ``style`` לא סופק
+        ייבחר סגנון אוטומטי.
+    freq_ranges : list of (f_low, f_high), optional
+        אם מצוין, מתווה הספקטרוגרמה בעזרת ציר שבור המאפשר דילוג על תחומי
+        תדר ללא עניין.
+    """
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    freq_axis = f / 1e6
 
-    im = ax1.pcolormesh(t, (f - center_freq)/1e6 if center_freq else f/1e6, Sxx_db, shading='nearest', cmap='viridis', norm=Normalize(vmin=vmin, vmax=vmax))
+    if freq_ranges:
+        if brokenaxes is None:
+            warnings.warn(
+                "brokenaxes is not installed; displaying full frequency range"
+            )
+            freq_ranges = None
+        else:
+            ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
+            fig = plt.figure(figsize=(12, 6))
+            ax1 = brokenaxes(ylims=ylims, hspace=0.05)
+            im = ax1.pcolormesh(
+                t,
+                freq_axis,
+                Sxx_db,
+                shading='nearest',
+                cmap='viridis',
+                norm=Normalize(vmin=vmin, vmax=vmax),
+            )
+    else:
+        if signal is not None:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+        else:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            ax2 = None
+        im = ax1.pcolormesh(
+            t,
+            freq_axis,
+            Sxx_db,
+            shading='nearest',
+            cmap='viridis',
+            norm=Normalize(vmin=vmin, vmax=vmax),
+        )
+        ax1.set_ylim(freq_axis.min(), freq_axis.max())
+
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
-    if center_freq:
-        ax1.set_ylim(-30, 30)
-        ax1.axhline(y=-20, color='r', linestyle='--', alpha=0.5)
-        ax1.axhline(y=20, color='r', linestyle='--', alpha=0.5)
+    marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+    if packet_markers:
+        seen_labels = {}
+        for idx, marker in enumerate(packet_markers):
+            if len(marker) >= 5:
+                tm, freq, label, style, color = marker[:5]
+            elif len(marker) == 4:
+                tm, freq, label, style = marker
+                color = f"C{idx % 10}"
+            elif len(marker) == 3:
+                tm, freq, label = marker
+                style = marker_styles[idx % len(marker_styles)]
+                color = f"C{idx % 10}"
+            else:
+                tm, freq = marker[:2]
+                label = None
+                style = marker_styles[idx % len(marker_styles)]
+                color = f"C{idx % 10}"
+            if label not in seen_labels:
+                show_label = label
+                seen_labels[label] = (style, color)
+            else:
+                show_label = "_nolegend_"
+                style, color = seen_labels[label]
+            ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
-    plt.colorbar(im, ax=ax1, label='Power [dB]')
+    if show_colorbar:
+        if freq_ranges:
+            plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
+        else:
+            plt.colorbar(im, ax=ax1, label='Power [dB]')
 
-    # גרף האות
-    if signal is not None:
+    if signal is not None and not freq_ranges:
         ax2.plot(np.abs(signal))
         if packet_start is not None:
             ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
@@ -125,6 +270,9 @@ def plot_spectrogram(f, t, Sxx, center_freq=0, title='Spectrogram', packet_start
         ax2.set_ylabel('Amplitude')
         ax2.legend()
         ax2.grid(True)
+
+    if packet_markers:
+        ax1.legend()
 
     plt.tight_layout()
     plt.show()
@@ -264,8 +412,8 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
         x = max(0, min(len(signal)-1, x))
         state['value'] = x
-        line1.set_xdata(x / sample_rate)
-        line2.set_xdata(x)
+        line1.set_xdata([x / sample_rate, x / sample_rate])
+        line2.set_xdata([x, x])
         fig.canvas.draw_idle()
 
     def _release(event):
@@ -283,3 +431,118 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     fig.canvas.mpl_disconnect(cid_rel)
 
     return state['value']
+
+def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None):
+    """Interactive GUI to adjust packet start (green) and end (red) positions.
+
+    Parameters
+    ----------
+    signal : array-like
+        The full signal.
+    sample_rate : float
+        Sampling rate in Hz.
+    start_sample : int, optional
+        Initial start sample position.
+    end_sample : int or None, optional
+        Initial end sample position. Defaults to ``len(signal)``.
+
+    Returns
+    -------
+    tuple of int
+        The selected (start_sample, end_sample).
+    """
+    if end_sample is None:
+        end_sample = len(signal)
+
+    f, t, Sxx = create_spectrogram(signal, sample_rate)
+    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+
+    ax1.pcolormesh(t, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
+    ax1.set_xlabel('Time [s]')
+    ax1.set_ylabel('Frequency [MHz]')
+    ax1.grid(True)
+
+    ax2.plot(np.abs(signal))
+    ax2.set_xlabel('Samples')
+    ax2.set_ylabel('Amplitude')
+    ax2.grid(True)
+
+    start_line1 = ax1.axvline(start_sample / sample_rate, color='g', linestyle='--', linewidth=2)
+    end_line1 = ax1.axvline(end_sample / sample_rate, color='r', linestyle='--', linewidth=1)
+    start_line2 = ax2.axvline(start_sample, color='g', linestyle='--', linewidth=2)
+    end_line2 = ax2.axvline(end_sample, color='r', linestyle='--', linewidth=1)
+
+    state = {'drag': None, 'active': 'start', 'start': start_sample, 'end': end_sample}
+
+    def _select(which):
+        state['active'] = which
+        start_lw = 2 if which == 'start' else 1
+        end_lw = 2 if which == 'end' else 1
+        start_line1.set_linewidth(start_lw)
+        start_line2.set_linewidth(start_lw)
+        end_line1.set_linewidth(end_lw)
+        end_line2.set_linewidth(end_lw)
+        fig.canvas.draw_idle()
+
+    _select('start')
+
+    def _press(event):
+        if event.inaxes not in (ax1, ax2):
+            return
+        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
+        x = max(0, min(len(signal) - 1, x))
+        state['drag'] = state['active']
+        if state['drag'] == 'start':
+            state['start'] = x
+            start_line1.set_xdata([x / sample_rate, x / sample_rate])
+            start_line2.set_xdata([x, x])
+        else:
+            state['end'] = x
+            end_line1.set_xdata([x / sample_rate, x / sample_rate])
+            end_line2.set_xdata([x, x])
+        fig.canvas.draw_idle()
+
+    def _move(event):
+        if state['drag'] is None or event.inaxes not in (ax1, ax2):
+            return
+        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
+        x = max(0, min(len(signal) - 1, x))
+        if state['drag'] == 'start':
+            state['start'] = x
+            start_line1.set_xdata([x / sample_rate, x / sample_rate])
+            start_line2.set_xdata([x, x])
+        else:
+            state['end'] = x
+            end_line1.set_xdata([x / sample_rate, x / sample_rate])
+            end_line2.set_xdata([x, x])
+        fig.canvas.draw_idle()
+
+    def _release(event):
+        state['drag'] = None
+
+    cid_press = fig.canvas.mpl_connect('button_press_event', _press)
+    cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
+    cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
+    cid_key = fig.canvas.mpl_connect(
+        'key_press_event',
+        lambda e: (
+            _select('start') if e.key == 'g'
+            else _select('end') if e.key == 'r'
+            else plt.close(fig) if e.key == 'enter'
+            else None
+        ),
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+    fig.canvas.mpl_disconnect(cid_press)
+    fig.canvas.mpl_disconnect(cid_move)
+    fig.canvas.mpl_disconnect(cid_rel)
+    fig.canvas.mpl_disconnect(cid_key)
+
+    return state['start'], state['end']
+

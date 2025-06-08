@@ -2,7 +2,16 @@ import os
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, BooleanVar
-from utils import load_packet, resample_signal, create_spectrogram, plot_spectrogram, save_vector, get_sample_rate_from_mat
+from utils import (
+    load_packet,
+    resample_signal,
+    create_spectrogram,
+    plot_spectrogram,
+    save_vector,
+    get_sample_rate_from_mat,
+    apply_frequency_shift,
+    compute_freq_ranges,
+)
 
 MAX_PACKETS = 6
 TARGET_SAMPLE_RATE = 10e6  # 10 MHz
@@ -186,10 +195,21 @@ class VectorApp:
             vector_length = float(self.vector_length_var.get())
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
             vector = np.zeros(total_samples, dtype=np.complex64)
+            freq_shifts = []
+            markers = []
+            marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+            marker_colors = [f"C{i}" for i in range(10)]
+            style_map = {}
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
                 y = load_packet(cfg['file'])
+                base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
+                if base_name not in style_map:
+                    idx_style = len(style_map) % len(marker_styles)
+                    idx_color = len(style_map) % len(marker_colors)
+                    style_map[base_name] = (marker_styles[idx_style], marker_colors[idx_color])
+                marker_style, marker_color = style_map[base_name]
                 
                 # הסרת הזבל לפני הפקטה
                 if cfg['pre_samples'] > 0:
@@ -201,8 +221,10 @@ class VectorApp:
                 
                 # Frequency shift
                 if cfg['freq_shift'] != 0:
-                    t = np.arange(len(y)) / TARGET_SAMPLE_RATE
-                    y = y * np.exp(2j * np.pi * cfg['freq_shift'] * t)
+                    y = apply_frequency_shift(y, cfg['freq_shift'], TARGET_SAMPLE_RATE)
+                    freq_shifts.append(cfg['freq_shift'])
+                else:
+                    freq_shifts.append(0)
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
@@ -216,10 +238,19 @@ class VectorApp:
                     if start >= total_samples:
                         break
                     if end > total_samples:
-                        y_to_add = y[:total_samples - start]
+                        y_to_add = y[: total_samples - start]
                     else:
                         y_to_add = y
                     vector[start:start + len(y_to_add)] += y_to_add
+                    markers.append(
+                        (
+                            start / TARGET_SAMPLE_RATE,
+                            cfg['freq_shift'],
+                            base_name,
+                            marker_style,
+                            marker_color,
+                        )
+                    )
 
             # Debug
             print("Vector abs sum:", np.abs(vector).sum())
@@ -233,8 +264,21 @@ class VectorApp:
                     vector = vector / max_abs
                     
             save_vector(vector, 'data/output_vector.mat')
-            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE)
-            plot_spectrogram(f, t, Sxx, title='Final Vector Spectrogram')
+            center_freq = 0
+            if freq_shifts:
+                center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
+            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
+            ranges = compute_freq_ranges(freq_shifts)
+            plot_spectrogram(
+                f,
+                t,
+                Sxx,
+                title='Final Vector Spectrogram',
+                center_freq=center_freq,
+                packet_markers=markers,
+                freq_ranges=ranges,
+                show_colorbar=False,
+            )
             messagebox.showinfo("Success", "Vector created and saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Error: {e}")

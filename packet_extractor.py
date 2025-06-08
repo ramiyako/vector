@@ -1,10 +1,9 @@
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from matplotlib.widgets import SpanSelector
 import tkinter as tk
 from tkinter import filedialog, ttk
-from utils import create_spectrogram, plot_spectrogram, get_sample_rate_from_mat, normalize_spectrogram
+from utils import get_sample_rate_from_mat, adjust_packet_bounds_gui
 
 class PacketExtractor:
     def __init__(self):
@@ -29,6 +28,17 @@ class PacketExtractor:
         self.sample_rate_var = tk.StringVar()
         self.sample_rate_entry = ttk.Entry(self.root, textvariable=self.sample_rate_var, state='readonly')
         self.sample_rate_entry.pack()
+
+        # הצגת תחילת וסיום הפקטה שנבחרו
+        ttk.Label(self.root, text="Start sample:").pack()
+        self.start_var = tk.StringVar()
+        self.start_entry = ttk.Entry(self.root, textvariable=self.start_var, state='readonly')
+        self.start_entry.pack()
+
+        ttk.Label(self.root, text="End sample:").pack()
+        self.end_var = tk.StringVar()
+        self.end_entry = ttk.Entry(self.root, textvariable=self.end_var, state='readonly')
+        self.end_entry.pack()
         
         # כפתור להצגת ספקטוגרמה
         self.plot_button = ttk.Button(self.root, text="הצג ספקטוגרמה", command=self.show_spectrogram)
@@ -67,33 +77,14 @@ class PacketExtractor:
             
         try:
             sample_rate = self.sample_rate
-            f, t, Sxx = create_spectrogram(self.signal, sample_rate)
-            Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
-            
-            # יצירת חלון חדש לספקטוגרמה
-            fig, ax = plt.subplots(figsize=(12, 6))
-            plt.subplots_adjust(bottom=0.2)
-            
-            # הצגת הספקטוגרמה
-            im = ax.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-            plt.colorbar(im, ax=ax, label='Power [dB]')
-            ax.set_title("בחר את תחילת הפקטה")
-            ax.set_xlabel('Time [s]')
-            ax.set_ylabel('Frequency [MHz]')
-            ax.grid(True)
-            
-            # בחירה רק בציר הזמן באמצעות SpanSelector
-            def onselect(xmin, xmax):
-                self.start_sample = int(xmin * sample_rate)
-                self.end_sample = int(xmax * sample_rate)
-                plt.close()
-
-            span = SpanSelector(ax, onselect, 'horizontal',
-                                useblit=True,
-                                minspan=5 / sample_rate)
-            
-            plt.show()
-            
+            self.start_sample, self.end_sample = adjust_packet_bounds_gui(
+                self.signal,
+                sample_rate,
+                self.start_sample or 0,
+                self.end_sample or len(self.signal),
+            )
+            self.start_var.set(str(self.start_sample))
+            self.end_var.set(str(self.end_sample))
         except Exception as e:
             tk.messagebox.showerror("שגיאה", f"שגיאה בהצגת הספקטוגרמה: {e}")
             
