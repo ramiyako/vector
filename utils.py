@@ -460,7 +460,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
     ax1.pcolormesh(t, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-    ax1.set_title('Drag the lines to set packet start (green) and end (red)')
+    ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
@@ -470,12 +470,24 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     ax2.set_ylabel('Amplitude')
     ax2.grid(True)
 
-    start_line1 = ax1.axvline(start_sample / sample_rate, color='g', linestyle='--')
-    end_line1 = ax1.axvline(end_sample / sample_rate, color='r', linestyle='--')
-    start_line2 = ax2.axvline(start_sample, color='g', linestyle='--')
-    end_line2 = ax2.axvline(end_sample, color='r', linestyle='--')
+    start_line1 = ax1.axvline(start_sample / sample_rate, color='g', linestyle='--', linewidth=2)
+    end_line1 = ax1.axvline(end_sample / sample_rate, color='r', linestyle='--', linewidth=1)
+    start_line2 = ax2.axvline(start_sample, color='g', linestyle='--', linewidth=2)
+    end_line2 = ax2.axvline(end_sample, color='r', linestyle='--', linewidth=1)
 
-    state = {'drag': None, 'start': start_sample, 'end': end_sample}
+    state = {'drag': None, 'active': 'start', 'start': start_sample, 'end': end_sample}
+
+    def _select(which):
+        state['active'] = which
+        start_lw = 2 if which == 'start' else 1
+        end_lw = 2 if which == 'end' else 1
+        start_line1.set_linewidth(start_lw)
+        start_line2.set_linewidth(start_lw)
+        end_line1.set_linewidth(end_lw)
+        end_line2.set_linewidth(end_lw)
+        fig.canvas.draw_idle()
+
+    _select('start')
 
     def _press(event):
         if event.inaxes not in (ax1, ax2):
@@ -483,8 +495,10 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
         x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
         if abs(x - state['start']) < sample_rate * 0.01:
             state['drag'] = 'start'
+            _select('start')
         elif abs(x - state['end']) < sample_rate * 0.01:
             state['drag'] = 'end'
+            _select('end')
 
     def _move(event):
         if state['drag'] is None or event.inaxes not in (ax1, ax2):
@@ -507,6 +521,15 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     cid_press = fig.canvas.mpl_connect('button_press_event', _press)
     cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
     cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
+    cid_key = fig.canvas.mpl_connect(
+        'key_press_event',
+        lambda e: (
+            _select('start') if e.key == 'g'
+            else _select('end') if e.key == 'r'
+            else plt.close(fig) if e.key == 'enter'
+            else None
+        ),
+    )
 
     plt.tight_layout()
     plt.show()
@@ -514,6 +537,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
     fig.canvas.mpl_disconnect(cid_rel)
+    fig.canvas.mpl_disconnect(cid_key)
 
     return state['start'], state['end']
 
