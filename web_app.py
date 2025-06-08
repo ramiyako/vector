@@ -1,5 +1,6 @@
 import os
 from flask import Flask, request, render_template, redirect, url_for, send_from_directory, flash
+from werkzeug.utils import secure_filename
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -111,9 +112,13 @@ def index():
     if request.method == "POST":
         uploaded = request.files.get("file")
         if uploaded and uploaded.filename.endswith('.mat'):
-            dest = os.path.join(UPLOAD_FOLDER, uploaded.filename)
-            uploaded.save(dest)
-            flash("File uploaded", "success")
+            filename = secure_filename(uploaded.filename)
+            if filename:
+                dest = os.path.join(UPLOAD_FOLDER, filename)
+                uploaded.save(dest)
+                flash("File uploaded", "success")
+            else:
+                flash("Invalid file name", "error")
         else:
             flash("Invalid file", "error")
         return redirect(url_for("index"))
@@ -125,8 +130,18 @@ def index():
 def generate():
     files = list_mat_files()
     if request.method == "POST":
-        vector_length = request.form.get("vector_length", type=float)
-        packet_count = min(int(request.form.get("packet_count", 1)), MAX_PACKETS)
+        try:
+            vector_length = float(request.form.get("vector_length", "1"))
+        except (TypeError, ValueError):
+            flash("Invalid vector length", "error")
+            return render_template("generate.html", files=files, max_packets=MAX_PACKETS)
+
+        try:
+            packet_count = int(request.form.get("packet_count", "1"))
+        except (TypeError, ValueError):
+            flash("Invalid packet count", "error")
+            return render_template("generate.html", files=files, max_packets=MAX_PACKETS)
+        packet_count = max(1, min(packet_count, MAX_PACKETS))
         configs = []
         for i in range(packet_count):
             cfg = {
