@@ -14,7 +14,7 @@ from utils import (
 )
 
 MAX_PACKETS = 6
-TARGET_SAMPLE_RATE = 40e6  # 40 MHz final sample rate
+TARGET_SAMPLE_RATE = 56e6  # 56 MHz final sample rate
 
 class PacketConfig:
     def __init__(self, parent, idx, file_choices):
@@ -43,7 +43,7 @@ class PacketConfig:
         # Sample rate (MHz)
         ttk.Label(self.frame, text="Sample Rate (MHz):").grid(row=1, column=0, sticky=tk.W)
         self.sr_var = tk.StringVar(value="")
-        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10, state='readonly')
+        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10)
         self.sr_entry.grid(row=1, column=1, sticky=tk.W)
 
         # קרא קצב דגימה עבור הקובץ הראשון
@@ -79,17 +79,22 @@ class PacketConfig:
                 self.sample_rate = sample_rate
                 self.sr_var.set(str(sample_rate / 1e6))
             else:
-                self.sample_rate = 40e6
-                self.sr_var.set("40")
+                self.sample_rate = 56e6
+                self.sr_var.set("56")
 
     def get_config(self):
+        try:
+            sr_value = float(self.sr_var.get()) * 1e6
+        except ValueError:
+            sr_value = self.sample_rate or TARGET_SAMPLE_RATE
+
         return {
             'file': self.file_var.get(),
-            'sample_rate': self.sample_rate,
+            'sample_rate': sr_value,
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
             'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
             'pre_samples': int(self.pre_samples_var.get()),
-            'start_time': float(self.start_time_var.get()) / 1000.0  # ms to seconds
+            'start_time': float(self.start_time_var.get()) / 1000.0,  # ms to seconds
         }
 
     def show_spectrogram(self):
