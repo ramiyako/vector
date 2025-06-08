@@ -177,8 +177,10 @@ def plot_spectrogram(
         קצב הדגימה של האות לצורך המרת מיקום הפקטה לזמן.
     signal : array or None
         האות המקורי להצגה בחלון התחתון.
-    packet_markers : list of (time, freq)
-        נקודות זמן (שניות) ותדרים (Hz) לסימון על הספקטרוגרמה.
+    packet_markers : list
+        רשימת סמנים. כל סמן הוא ``(time, freq, label[, style])`` כאשר ``style``
+        הוא סימון matplotlib לתצוגה (למשל ``'x'``). אם ``style`` לא סופק
+        ייבחר סגנון אוטומטי.
     freq_ranges : list of (f_low, f_high), optional
         אם מצוין, מתווה הספקטרוגרמה בעזרת ציר שבור המאפשר דילוג על תחומי
         תדר ללא עניין.
@@ -227,14 +229,20 @@ def plot_spectrogram(
     ax1.grid(True)
     marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
     if packet_markers:
+        seen_labels = set()
         for idx, marker in enumerate(packet_markers):
-            if len(marker) == 3:
+            if len(marker) >= 4:
+                tm, freq, label, style = marker[:4]
+            elif len(marker) == 3:
                 tm, freq, label = marker
+                style = marker_styles[idx % len(marker_styles)]
             else:
                 tm, freq = marker[:2]
                 label = None
-            style = marker_styles[idx % len(marker_styles)]
-            ax1.plot(tm, freq / 1e6, style, label=label)
+                style = marker_styles[idx % len(marker_styles)]
+            show_label = label if label not in seen_labels else "_nolegend_"
+            seen_labels.add(label)
+            ax1.plot(tm, freq / 1e6, style, label=show_label)
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
@@ -414,3 +422,89 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     fig.canvas.mpl_disconnect(cid_rel)
 
     return state['value']
+
+def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None):
+    """Interactive GUI to adjust packet start (green) and end (red) positions.
+
+    Parameters
+    ----------
+    signal : array-like
+        The full signal.
+    sample_rate : float
+        Sampling rate in Hz.
+    start_sample : int, optional
+        Initial start sample position.
+    end_sample : int or None, optional
+        Initial end sample position. Defaults to ``len(signal)``.
+
+    Returns
+    -------
+    tuple of int
+        The selected (start_sample, end_sample).
+    """
+    if end_sample is None:
+        end_sample = len(signal)
+
+    f, t, Sxx = create_spectrogram(signal, sample_rate)
+    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+
+    ax1.pcolormesh(t, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_title('Drag the lines to set packet start (green) and end (red)')
+    ax1.set_xlabel('Time [s]')
+    ax1.set_ylabel('Frequency [MHz]')
+    ax1.grid(True)
+
+    ax2.plot(np.abs(signal))
+    ax2.set_xlabel('Samples')
+    ax2.set_ylabel('Amplitude')
+    ax2.grid(True)
+
+    start_line1 = ax1.axvline(start_sample / sample_rate, color='g', linestyle='--')
+    end_line1 = ax1.axvline(end_sample / sample_rate, color='r', linestyle='--')
+    start_line2 = ax2.axvline(start_sample, color='g', linestyle='--')
+    end_line2 = ax2.axvline(end_sample, color='r', linestyle='--')
+
+    state = {'drag': None, 'start': start_sample, 'end': end_sample}
+
+    def _press(event):
+        if event.inaxes not in (ax1, ax2):
+            return
+        x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
+        if abs(x - state['start']) < sample_rate * 0.01:
+            state['drag'] = 'start'
+        elif abs(x - state['end']) < sample_rate * 0.01:
+            state['drag'] = 'end'
+
+    def _move(event):
+        if state['drag'] is None or event.inaxes not in (ax1, ax2):
+            return
+        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
+        x = max(0, min(len(signal) - 1, x))
+        if state['drag'] == 'start':
+            state['start'] = x
+            start_line1.set_xdata(x / sample_rate)
+            start_line2.set_xdata(x)
+        else:
+            state['end'] = x
+            end_line1.set_xdata(x / sample_rate)
+            end_line2.set_xdata(x)
+        fig.canvas.draw_idle()
+
+    def _release(event):
+        state['drag'] = None
+
+    cid_press = fig.canvas.mpl_connect('button_press_event', _press)
+    cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
+    cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
+
+    plt.tight_layout()
+    plt.show()
+
+    fig.canvas.mpl_disconnect(cid_press)
+    fig.canvas.mpl_disconnect(cid_move)
+    fig.canvas.mpl_disconnect(cid_rel)
+
+    return state['start'], state['end']
+

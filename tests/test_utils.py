@@ -112,6 +112,27 @@ def test_packet_markers_show_absolute_frequency():
     matplotlib.pyplot.close("all")
 
 
+def test_marker_legend_deduplicated():
+    import matplotlib
+    matplotlib.use("Agg")
+    sr = 8000
+    sig = generate_sample_packet(0.1, sr, 1000)
+    f, t, Sxx = create_spectrogram(sig, sr)
+    markers = [
+        (0.0, 900, "A", "o"),
+        (0.1, 900, "A", "o"),
+        (0.2, 950, "B", "x"),
+    ]
+    plot_spectrogram(f, t, Sxx, packet_markers=markers)
+    ax = matplotlib.pyplot.gcf().axes[0]
+    labels = [h.get_label() for h in ax.legend().legend_handles]
+    assert labels.count("A") == 1
+    assert labels.count("B") == 1
+    lines = ax.lines
+    assert lines[0].get_marker() == lines[1].get_marker()
+    matplotlib.pyplot.close("all")
+
+
 def test_plot_spectrogram_without_signal_has_single_axis():
     import matplotlib
     matplotlib.use("Agg")

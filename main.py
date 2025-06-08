@@ -197,10 +197,16 @@ class VectorApp:
             vector = np.zeros(total_samples, dtype=np.complex64)
             freq_shifts = []
             markers = []
+            marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+            style_map = {}
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
                 y = load_packet(cfg['file'])
+                base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
+                if base_name not in style_map:
+                    style_map[base_name] = marker_styles[len(style_map) % len(marker_styles)]
+                marker_style = style_map[base_name]
                 
                 # הסרת הזבל לפני הפקטה
                 if cfg['pre_samples'] > 0:
@@ -233,7 +239,14 @@ class VectorApp:
                     else:
                         y_to_add = y
                     vector[start:start + len(y_to_add)] += y_to_add
-                    markers.append((start / TARGET_SAMPLE_RATE, cfg['freq_shift'], f"Packet {idx+1}"))
+                    markers.append(
+                        (
+                            start / TARGET_SAMPLE_RATE,
+                            cfg['freq_shift'],
+                            base_name,
+                            marker_style,
+                        )
+                    )
 
             # Debug
             print("Vector abs sum:", np.abs(vector).sum())

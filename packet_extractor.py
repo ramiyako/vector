@@ -1,10 +1,9 @@
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from matplotlib.widgets import SpanSelector
 import tkinter as tk
 from tkinter import filedialog, ttk
-from utils import create_spectrogram, plot_spectrogram, get_sample_rate_from_mat, normalize_spectrogram
+from utils import get_sample_rate_from_mat, adjust_packet_bounds_gui
 
 class PacketExtractor:
     def __init__(self):
@@ -67,33 +66,12 @@ class PacketExtractor:
             
         try:
             sample_rate = self.sample_rate
-            f, t, Sxx = create_spectrogram(self.signal, sample_rate)
-            Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
-            
-            # יצירת חלון חדש לספקטוגרמה
-            fig, ax = plt.subplots(figsize=(12, 6))
-            plt.subplots_adjust(bottom=0.2)
-            
-            # הצגת הספקטוגרמה
-            im = ax.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-            plt.colorbar(im, ax=ax, label='Power [dB]')
-            ax.set_title("בחר את תחילת הפקטה")
-            ax.set_xlabel('Time [s]')
-            ax.set_ylabel('Frequency [MHz]')
-            ax.grid(True)
-            
-            # בחירה רק בציר הזמן באמצעות SpanSelector
-            def onselect(xmin, xmax):
-                self.start_sample = int(xmin * sample_rate)
-                self.end_sample = int(xmax * sample_rate)
-                plt.close()
-
-            span = SpanSelector(ax, onselect, 'horizontal',
-                                useblit=True,
-                                minspan=5 / sample_rate)
-            
-            plt.show()
-            
+            self.start_sample, self.end_sample = adjust_packet_bounds_gui(
+                self.signal,
+                sample_rate,
+                self.start_sample or 0,
+                self.end_sample or len(self.signal),
+            )
         except Exception as e:
             tk.messagebox.showerror("שגיאה", f"שגיאה בהצגת הספקטוגרמה: {e}")
             
