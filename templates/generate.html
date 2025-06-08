@@ -1,0 +1,30 @@
+<!doctype html>
+<title>Create Vector</title>
+<h1>Create Vector</h1>
+<form method="post">
+  Vector length (s): <input type="text" name="vector_length" value="1"><br>
+  Number of packets: <input type="number" name="packet_count" min="1" max="{{ max_packets }}" value="1"><br>
+  {% for i in range(max_packets) %}
+  <fieldset>
+    <legend>Packet {{ i }}</legend>
+    File:
+    <select name="file_{{ i }}">
+      <option value="">-</option>
+      {% for f in files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select><br>
+    Sample Rate (MHz): <input type="text" name="sr_{{ i }}" value="56"><br>
+    Freq Shift (MHz): <input type="text" name="fs_{{ i }}" value="0"><br>
+    Period (ms): <input type="text" name="period_{{ i }}" value="100"><br>
+    Pre samples: <input type="text" name="pre_{{ i }}" value="0"><br>
+    Start offset (ms): <input type="text" name="start_{{ i }}" value="0"><br>
+  </fieldset>
+  {% endfor %}
+  Output format:
+  <select name="format">
+    <option value="mat">MAT</option>
+    <option value="wv">WV</option>
+  </select><br>
+  <input type="submit" value="Generate">
+</form>

@@ -1,0 +1,23 @@
+<!doctype html>
+<title>Vector Analyzer</title>
+<h1>Upload MAT file</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <ul>
+    {% for category, msg in messages %}
+      <li>{{ msg }}</li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+<form method="post" enctype="multipart/form-data">
+  <input type="file" name="file">
+  <input type="submit" value="Upload">
+</form>
+<h2>Available files</h2>
+<ul>
+{% for f in files %}
+  <li>{{ f }}</li>
+{% endfor %}
+</ul>
+<p><a href="{{ url_for('generate') }}">Create Vector</a></p>
