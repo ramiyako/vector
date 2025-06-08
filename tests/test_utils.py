@@ -119,9 +119,9 @@ def test_marker_legend_deduplicated():
     sig = generate_sample_packet(0.1, sr, 1000)
     f, t, Sxx = create_spectrogram(sig, sr)
     markers = [
-        (0.0, 900, "A", "o"),
-        (0.1, 900, "A", "o"),
-        (0.2, 950, "B", "x"),
+        (0.0, 900, "A", "o", "C0"),
+        (0.1, 900, "A", "o", "C0"),
+        (0.2, 950, "B", "x", "C1"),
     ]
     plot_spectrogram(f, t, Sxx, packet_markers=markers)
     ax = matplotlib.pyplot.gcf().axes[0]
@@ -130,6 +130,7 @@ def test_marker_legend_deduplicated():
     assert labels.count("B") == 1
     lines = ax.lines
     assert lines[0].get_marker() == lines[1].get_marker()
+    assert lines[0].get_color() == lines[1].get_color()
     matplotlib.pyplot.close("all")
 
 

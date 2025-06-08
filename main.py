@@ -198,6 +198,7 @@ class VectorApp:
             freq_shifts = []
             markers = []
             marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+            marker_colors = [f"C{i}" for i in range(10)]
             style_map = {}
 
             for idx, pc in enumerate(self.packet_configs):
@@ -205,8 +206,10 @@ class VectorApp:
                 y = load_packet(cfg['file'])
                 base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
                 if base_name not in style_map:
-                    style_map[base_name] = marker_styles[len(style_map) % len(marker_styles)]
-                marker_style = style_map[base_name]
+                    idx_style = len(style_map) % len(marker_styles)
+                    idx_color = len(style_map) % len(marker_colors)
+                    style_map[base_name] = (marker_styles[idx_style], marker_colors[idx_color])
+                marker_style, marker_color = style_map[base_name]
                 
                 # הסרת הזבל לפני הפקטה
                 if cfg['pre_samples'] > 0:
@@ -245,6 +248,7 @@ class VectorApp:
                             cfg['freq_shift'],
                             base_name,
                             marker_style,
+                            marker_color,
                         )
                     )
 

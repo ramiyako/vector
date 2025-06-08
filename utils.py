@@ -229,20 +229,29 @@ def plot_spectrogram(
     ax1.grid(True)
     marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
     if packet_markers:
-        seen_labels = set()
+        seen_labels = {}
         for idx, marker in enumerate(packet_markers):
-            if len(marker) >= 4:
-                tm, freq, label, style = marker[:4]
+            if len(marker) >= 5:
+                tm, freq, label, style, color = marker[:5]
+            elif len(marker) == 4:
+                tm, freq, label, style = marker
+                color = f"C{idx % 10}"
             elif len(marker) == 3:
                 tm, freq, label = marker
                 style = marker_styles[idx % len(marker_styles)]
+                color = f"C{idx % 10}"
             else:
                 tm, freq = marker[:2]
                 label = None
                 style = marker_styles[idx % len(marker_styles)]
-            show_label = label if label not in seen_labels else "_nolegend_"
-            seen_labels.add(label)
-            ax1.plot(tm, freq / 1e6, style, label=show_label)
+                color = f"C{idx % 10}"
+            if label not in seen_labels:
+                show_label = label
+                seen_labels[label] = (style, color)
+            else:
+                show_label = "_nolegend_"
+                style, color = seen_labels[label]
+            ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
@@ -403,8 +412,8 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
         x = max(0, min(len(signal)-1, x))
         state['value'] = x
-        line1.set_xdata(x / sample_rate)
-        line2.set_xdata(x)
+        line1.set_xdata([x / sample_rate, x / sample_rate])
+        line2.set_xdata([x, x])
         fig.canvas.draw_idle()
 
     def _release(event):
@@ -484,12 +493,12 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
         x = max(0, min(len(signal) - 1, x))
         if state['drag'] == 'start':
             state['start'] = x
-            start_line1.set_xdata(x / sample_rate)
-            start_line2.set_xdata(x)
+            start_line1.set_xdata([x / sample_rate, x / sample_rate])
+            start_line2.set_xdata([x, x])
         else:
             state['end'] = x
-            end_line1.set_xdata(x / sample_rate)
-            end_line2.set_xdata(x)
+            end_line1.set_xdata([x / sample_rate, x / sample_rate])
+            end_line2.set_xdata([x, x])
         fig.canvas.draw_idle()
 
     def _release(event):
