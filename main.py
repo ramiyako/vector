@@ -14,7 +14,7 @@ from utils import (
 )
 
 MAX_PACKETS = 6
-TARGET_SAMPLE_RATE = 10e6  # 10 MHz
+TARGET_SAMPLE_RATE = 40e6  # 40 MHz final sample rate
 
 class PacketConfig:
     def __init__(self, parent, idx, file_choices):
@@ -79,8 +79,8 @@ class PacketConfig:
                 self.sample_rate = sample_rate
                 self.sr_var.set(str(sample_rate / 1e6))
             else:
-                self.sample_rate = 56e6
-                self.sr_var.set("56")
+                self.sample_rate = 40e6
+                self.sr_var.set("40")
 
     def get_config(self):
         return {
