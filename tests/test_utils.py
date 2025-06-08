@@ -10,6 +10,7 @@ from utils import (
     apply_frequency_shift,
     create_spectrogram,
     plot_spectrogram,
+    save_vector_wv,
 )
 
 
@@ -157,4 +158,15 @@ def test_broken_axis_ranges():
     fig = matplotlib.pyplot.gcf()
     assert len(fig.axes) >= 2
     matplotlib.pyplot.close("all")
+
+
+def test_save_vector_wv(tmp_path):
+    data = np.array([1 + 1j, -1 - 1j], dtype=np.complex64)
+    out_file = tmp_path / "out.wv"
+    save_vector_wv(data, str(out_file), sample_rate=1e6)
+    assert out_file.exists()
+    with open(out_file, "rb") as f:
+        header = f.read(20)
+    assert b"TYPE: SMU-WV" in header
+
 

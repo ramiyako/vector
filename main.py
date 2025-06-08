@@ -14,7 +14,7 @@ from utils import (
 )
 
 MAX_PACKETS = 6
-TARGET_SAMPLE_RATE = 10e6  # 10 MHz
+TARGET_SAMPLE_RATE = 56e6  # 56 MHz final sample rate
 
 class PacketConfig:
     def __init__(self, parent, idx, file_choices):
@@ -43,7 +43,7 @@ class PacketConfig:
         # Sample rate (MHz)
         ttk.Label(self.frame, text="Sample Rate (MHz):").grid(row=1, column=0, sticky=tk.W)
         self.sr_var = tk.StringVar(value="")
-        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10, state='readonly')
+        self.sr_entry = ttk.Entry(self.frame, textvariable=self.sr_var, width=10)
         self.sr_entry.grid(row=1, column=1, sticky=tk.W)
 
         # קרא קצב דגימה עבור הקובץ הראשון
@@ -83,13 +83,18 @@ class PacketConfig:
                 self.sr_var.set("56")
 
     def get_config(self):
+        try:
+            sr_value = float(self.sr_var.get()) * 1e6
+        except ValueError:
+            sr_value = self.sample_rate or TARGET_SAMPLE_RATE
+
         return {
             'file': self.file_var.get(),
-            'sample_rate': self.sample_rate,
+            'sample_rate': sr_value,
             'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # MHz to Hz
             'period': float(self.period_var.get()) / 1000.0,  # ms to seconds
             'pre_samples': int(self.pre_samples_var.get()),
-            'start_time': float(self.start_time_var.get()) / 1000.0  # ms to seconds
+            'start_time': float(self.start_time_var.get()) / 1000.0,  # ms to seconds
         }
 
     def show_spectrogram(self):
@@ -177,8 +182,17 @@ class VectorApp:
         # Normalize
         ttk.Checkbutton(main_frame, text="Normalize final vector", variable=self.normalize).pack(anchor=tk.W, pady=5)
 
-        # Create vector button
-        ttk.Button(main_frame, text="Create vector", command=self.generate_vector).pack(pady=10)
+        # Create vector buttons
+        ttk.Button(
+            main_frame,
+            text="Create MAT Vector",
+            command=self.generate_mat_vector,
+        ).pack(pady=5)
+        ttk.Button(
+            main_frame,
+            text="Create WV Vector",
+            command=self.generate_wv_vector,
+        ).pack(pady=5)
 
     def update_packets(self):
         for pf in self.packet_frames:
@@ -190,7 +204,13 @@ class VectorApp:
             self.packet_frames.append(pc)
             self.packet_configs.append(pc)
 
-    def generate_vector(self):
+    def generate_mat_vector(self):
+        self.generate_vector("mat")
+
+    def generate_wv_vector(self):
+        self.generate_vector("wv")
+
+    def generate_vector(self, output_format="mat"):
         try:
             vector_length = float(self.vector_length_var.get())
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
@@ -263,7 +283,12 @@ class VectorApp:
                 if max_abs > 0:
                     vector = vector / max_abs
                     
-            save_vector(vector, 'data/output_vector.mat')
+            if output_format == "wv":
+                from utils import save_vector_wv
+                output_path = 'data/output_vector.wv'
+                save_vector_wv(vector, output_path, TARGET_SAMPLE_RATE)
+            else:
+                save_vector(vector, 'data/output_vector.mat')
             center_freq = 0
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
@@ -279,7 +304,9 @@ class VectorApp:
                 freq_ranges=ranges,
                 show_colorbar=False,
             )
-            messagebox.showinfo("Success", "Vector created and saved successfully!")
+            messagebox.showinfo(
+                "Success", f"Vector created and saved successfully as {output_format.upper()}"
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Error: {e}")
 

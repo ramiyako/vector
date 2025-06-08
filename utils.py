@@ -281,6 +281,13 @@ def save_vector(vector, output_path):
     """שומר את הוקטור כקובץ .mat"""
     sio.savemat(output_path, {'Y': vector})
 
+def save_vector_wv(vector, output_path, sample_rate, normalize=False):
+    """שומר את הוקטור כקובץ .wv באמצעות הסקריפט הקיים."""
+    from vector_analyzer.mat_to_wv_converter import mat2wv
+
+    # mat2wv יודע לקבל ישירות numpy array
+    mat2wv(vector, output_path, sample_rate, bNormalize=normalize)
+
 def generate_sample_packet(duration, sr, frequency, amplitude=1.0):
     """יוצר פקטה לדוגמה"""
     # np.linspace כולל כברירת מחדל את נקודת הסיום, מה שגורם לדגימה אחת
