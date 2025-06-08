@@ -177,8 +177,17 @@ class VectorApp:
         # Normalize
         ttk.Checkbutton(main_frame, text="Normalize final vector", variable=self.normalize).pack(anchor=tk.W, pady=5)
 
-        # Create vector button
-        ttk.Button(main_frame, text="Create vector", command=self.generate_vector).pack(pady=10)
+        # Create vector buttons
+        ttk.Button(
+            main_frame,
+            text="Create MAT Vector",
+            command=self.generate_mat_vector,
+        ).pack(pady=5)
+        ttk.Button(
+            main_frame,
+            text="Create WV Vector",
+            command=self.generate_wv_vector,
+        ).pack(pady=5)
 
     def update_packets(self):
         for pf in self.packet_frames:
@@ -190,7 +199,13 @@ class VectorApp:
             self.packet_frames.append(pc)
             self.packet_configs.append(pc)
 
-    def generate_vector(self):
+    def generate_mat_vector(self):
+        self.generate_vector("mat")
+
+    def generate_wv_vector(self):
+        self.generate_vector("wv")
+
+    def generate_vector(self, output_format="mat"):
         try:
             vector_length = float(self.vector_length_var.get())
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
@@ -263,7 +278,12 @@ class VectorApp:
                 if max_abs > 0:
                     vector = vector / max_abs
                     
-            save_vector(vector, 'data/output_vector.mat')
+            if output_format == "wv":
+                from utils import save_vector_wv
+                output_path = 'data/output_vector.wv'
+                save_vector_wv(vector, output_path, TARGET_SAMPLE_RATE)
+            else:
+                save_vector(vector, 'data/output_vector.mat')
             center_freq = 0
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
@@ -279,7 +299,9 @@ class VectorApp:
                 freq_ranges=ranges,
                 show_colorbar=False,
             )
-            messagebox.showinfo("Success", "Vector created and saved successfully!")
+            messagebox.showinfo(
+                "Success", f"Vector created and saved successfully as {output_format.upper()}"
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Error: {e}")
 
