@@ -28,6 +28,17 @@ class PacketExtractor:
         self.sample_rate_var = tk.StringVar()
         self.sample_rate_entry = ttk.Entry(self.root, textvariable=self.sample_rate_var, state='readonly')
         self.sample_rate_entry.pack()
+
+        # הצגת תחילת וסיום הפקטה שנבחרו
+        ttk.Label(self.root, text="Start sample:").pack()
+        self.start_var = tk.StringVar()
+        self.start_entry = ttk.Entry(self.root, textvariable=self.start_var, state='readonly')
+        self.start_entry.pack()
+
+        ttk.Label(self.root, text="End sample:").pack()
+        self.end_var = tk.StringVar()
+        self.end_entry = ttk.Entry(self.root, textvariable=self.end_var, state='readonly')
+        self.end_entry.pack()
         
         # כפתור להצגת ספקטוגרמה
         self.plot_button = ttk.Button(self.root, text="הצג ספקטוגרמה", command=self.show_spectrogram)
@@ -72,6 +83,8 @@ class PacketExtractor:
                 self.start_sample or 0,
                 self.end_sample or len(self.signal),
             )
+            self.start_var.set(str(self.start_sample))
+            self.end_var.set(str(self.end_sample))
         except Exception as e:
             tk.messagebox.showerror("שגיאה", f"שגיאה בהצגת הספקטוגרמה: {e}")
             

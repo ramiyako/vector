@@ -492,13 +492,18 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     def _press(event):
         if event.inaxes not in (ax1, ax2):
             return
-        x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
-        if abs(x - state['start']) < sample_rate * 0.01:
-            state['drag'] = 'start'
-            _select('start')
-        elif abs(x - state['end']) < sample_rate * 0.01:
-            state['drag'] = 'end'
-            _select('end')
+        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
+        x = max(0, min(len(signal) - 1, x))
+        state['drag'] = state['active']
+        if state['drag'] == 'start':
+            state['start'] = x
+            start_line1.set_xdata([x / sample_rate, x / sample_rate])
+            start_line2.set_xdata([x, x])
+        else:
+            state['end'] = x
+            end_line1.set_xdata([x / sample_rate, x / sample_rate])
+            end_line2.set_xdata([x, x])
+        fig.canvas.draw_idle()
 
     def _move(event):
         if state['drag'] is None or event.inaxes not in (ax1, ax2):
