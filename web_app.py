@@ -136,6 +136,21 @@ def index():
         if uploaded:
             filename = secure_filename(uploaded.filename)
             if filename:
+                try:
+                    dest = os.path.join(UPLOAD_FOLDER, filename)
+                    uploaded.save(dest)
+                    flash("File uploaded", "success")
+                except Exception as e:
+                    flash(f"Error saving file: {str(e)}", "error")
+            else:
+                flash("Invalid file name", "error")
+        else:
+            flash("Invalid file", "error")
+        return redirect(url_for("index"))
+    files = list_mat_files()
+    return render_template("index.html", files=files)
+
+
 @app.route("/spectrogram/<path:filename>")
 def spectrogram(filename):
     filename = secure_filename(filename)
@@ -210,21 +225,6 @@ def extract(filename):
         image=preview,
         saved=saved_name,
     )
-
-
-                try:
-                    dest = os.path.join(UPLOAD_FOLDER, filename)
-                    uploaded.save(dest)
-                    flash("File uploaded", "success")
-                except Exception as e:
-                    flash(f"Error saving file: {str(e)}", "error")
-            else:
-                flash("Invalid file name", "error")
-        else:
-            flash("Invalid file", "error")
-        return redirect(url_for("index"))
-    files = list_mat_files()
-    return render_template("index.html", files=files)
 
 
 @app.route("/generate", methods=["GET", "POST"])
