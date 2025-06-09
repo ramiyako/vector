@@ -31,6 +31,26 @@ def test_invalid_inputs(tmp_path):
     assert b'Create Vector' in response.data
 
 
+def test_spectrogram_and_analyze(tmp_path):
+    from scipy.io import savemat
+    import numpy as np
+
+    client = web_app.app.test_client()
+    web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)
+    web_app.UPLOAD_FOLDER = str(tmp_path)
+
+    file_path = tmp_path / 'test.mat'
+    savemat(file_path, {'Y': np.ones(2048, dtype=np.complex64), 'xDelta': 1 / 56e6})
+
+    resp = client.get(f'/spectrogram/{file_path.name}')
+    assert resp.status_code == 200
+    assert (tmp_path / f'{file_path.name}_spec.png').exists()
+
+    resp = client.get(f'/analyze/{file_path.name}')
+    assert resp.status_code == 200
+    assert (tmp_path / f'{file_path.name}_analysis.png').exists()
+
+
 def test_file_save_error(tmp_path):
     client = web_app.app.test_client()
     web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)

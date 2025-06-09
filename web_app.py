@@ -14,6 +14,10 @@ from utils import (
     compute_freq_ranges,
     save_vector,
     save_vector_wv,
+    get_sample_rate_from_mat,
+    measure_packet_timing,
+    plot_packet_with_markers,
+    plot_spectrogram,
 )
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "data")
@@ -111,9 +115,50 @@ def generate_vector(configs, vector_length, output_format="mat", normalize=True)
 def index():
     if request.method == "POST":
         uploaded = request.files.get("file")
-        if uploaded and uploaded.filename.endswith('.mat'):
+        if uploaded:
             filename = secure_filename(uploaded.filename)
             if filename:
+@app.route("/spectrogram/<path:filename>")
+def spectrogram(filename):
+    filename = secure_filename(filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if not os.path.isfile(file_path):
+        return redirect(url_for("index"))
+    sr = get_sample_rate_from_mat(file_path) or TARGET_SAMPLE_RATE
+    y = load_packet(file_path)
+    f, t, Sxx = create_spectrogram(y, sr)
+    plt.figure()
+    plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {filename}", sample_rate=sr, signal=y)
+    image_name = f"{filename}_spec.png"
+    plt.savefig(os.path.join(UPLOAD_FOLDER, image_name))
+    plt.close("all")
+    return render_template("spectrogram.html", image=image_name, filename=filename)
+
+
+@app.route("/analyze/<path:filename>")
+def analyze(filename):
+    filename = secure_filename(filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if not os.path.isfile(file_path):
+        return redirect(url_for("index"))
+    sr = get_sample_rate_from_mat(file_path) or TARGET_SAMPLE_RATE
+    y = load_packet(file_path)
+    pre, post, start = measure_packet_timing(y)
+    plt.figure()
+    plot_packet_with_markers(y, start, title=f"Packet Analysis - {filename}")
+    image_name = f"{filename}_analysis.png"
+    plt.savefig(os.path.join(UPLOAD_FOLDER, image_name))
+    plt.close("all")
+    return render_template(
+        "analyze.html",
+        filename=filename,
+        pre_samples=pre,
+        post_samples=post,
+        packet_start=start,
+        image=image_name,
+    )
+
+
                 try:
                     dest = os.path.join(UPLOAD_FOLDER, filename)
                     uploaded.save(dest)

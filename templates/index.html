@@ -17,7 +17,10 @@
 <h2>Available files</h2>
 <ul>
 {% for f in files %}
-  <li>{{ f }}</li>
+  <li>{{ f }} -
+      <a href="{{ url_for('spectrogram', filename=f) }}">Spectrogram</a> |
+      <a href="{{ url_for('analyze', filename=f) }}">Analyze</a>
+  </li>
 {% endfor %}
 </ul>
 <p><a href="{{ url_for('generate') }}">Create Vector</a></p>
