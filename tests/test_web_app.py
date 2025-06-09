@@ -51,6 +51,26 @@ def test_spectrogram_and_analyze(tmp_path):
     assert (tmp_path / f'{file_path.name}_analysis.png').exists()
 
 
+def test_extract_packet(tmp_path):
+    from scipy.io import savemat, loadmat
+    import numpy as np
+
+    client = web_app.app.test_client()
+    web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)
+    web_app.UPLOAD_FOLDER = str(tmp_path)
+
+    file_path = tmp_path / 'test.mat'
+    savemat(file_path, {'Y': np.arange(100, dtype=np.complex64), 'xDelta': 1/56e6})
+
+    resp = client.post(f'/extract/{file_path.name}', data={'start': '10', 'end': '20'})
+    assert resp.status_code == 200
+    saved = tmp_path / 'test_extract.mat'
+    assert saved.exists()
+    mat = loadmat(saved)
+    assert mat['Y'].flatten().shape[0] == 10
+    assert (tmp_path / f'{file_path.name}_extract.png').exists()
+
+
 def test_file_save_error(tmp_path):
     client = web_app.app.test_client()
     web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)

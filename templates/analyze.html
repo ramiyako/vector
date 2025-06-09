@@ -1,8 +1,10 @@
-<!doctype html>
-<title>Analysis</title>
-<h1>Analysis for {{ filename }}</h1>
+{% extends 'base.html' %}
+{% block title %}Analysis{% endblock %}
+{% block header %}Analysis for {{ filename }}{% endblock %}
+{% block content %}
 <p>Start sample: {{ packet_start }}</p>
 <p>Pre samples: {{ pre_samples }}</p>
 <p>Post samples: {{ post_samples }}</p>
-<img src="{{ url_for('data_file', filename=image) }}" alt="Analysis">
+<img class="img-fluid" src="{{ url_for('data_file', filename=image) }}" alt="Analysis">
 <p><a href="{{ url_for('index') }}">Back to Home</a></p>
+{% endblock %}

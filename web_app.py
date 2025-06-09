@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import scipy.io as sio
 
 from utils import (
     load_packet,
@@ -33,6 +34,23 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def list_mat_files():
     return [f for f in os.listdir(UPLOAD_FOLDER) if f.lower().endswith(".mat")]
+
+
+def save_extract_preview(signal, sr, start, end, out_path):
+    f, t, Sxx = create_spectrogram(signal, sr)
+    plt.figure()
+    plot_spectrogram(
+        f,
+        t,
+        Sxx,
+        title="Packet Preview",
+        sample_rate=sr,
+        signal=signal,
+    )
+    plt.axvline(start / sr, color="g", linestyle="--")
+    plt.axvline(end / sr, color="r", linestyle="--")
+    plt.savefig(out_path)
+    plt.close("all")
 
 
 def generate_vector(configs, vector_length, output_format="mat", normalize=True):
@@ -156,6 +174,41 @@ def analyze(filename):
         post_samples=post,
         packet_start=start,
         image=image_name,
+    )
+
+
+@app.route("/extract/<path:filename>", methods=["GET", "POST"])
+def extract(filename):
+    filename = secure_filename(filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if not os.path.isfile(file_path):
+        return redirect(url_for("index"))
+    y = load_packet(file_path)
+    sr = get_sample_rate_from_mat(file_path) or TARGET_SAMPLE_RATE
+    total = len(y)
+    start = 0
+    end = total
+    saved_name = None
+    if request.method == "POST":
+        try:
+            start = int(request.form.get("start", "0"))
+            end = int(request.form.get("end", str(total)))
+        except (TypeError, ValueError):
+            flash("Invalid range", "error")
+        start = max(0, min(start, total - 1))
+        end = max(start + 1, min(end, total))
+        saved_name = f"{os.path.splitext(filename)[0]}_extract.mat"
+        sio.savemat(os.path.join(UPLOAD_FOLDER, saved_name), {"Y": y[start:end]})
+        flash(f"Packet saved as {saved_name}", "success")
+    preview = f"{filename}_extract.png"
+    save_extract_preview(y, sr, start, end, os.path.join(UPLOAD_FOLDER, preview))
+    return render_template(
+        "extract.html",
+        filename=filename,
+        start=start,
+        end=end,
+        image=preview,
+        saved=saved_name,
     )
 
 

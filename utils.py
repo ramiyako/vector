@@ -117,9 +117,14 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         factor = 1
         fs = sr
 
-    window_size = 1024
-    overlap = window_size // 2
-    nfft = 1024
+    if len(sig) < 1024:
+        # choose a power of two not larger than the signal
+        power = int(np.floor(np.log2(len(sig)))) if len(sig) > 0 else 0
+        window_size = 2 ** max(power, 5)
+    else:
+        window_size = 1024
+    overlap = min(window_size // 2, max(0, window_size // 2 - 1))
+    nfft = window_size
     freqs, times, Sxx = signal.spectrogram(
         sig,
         fs=fs,

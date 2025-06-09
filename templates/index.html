@@ -1,26 +1,22 @@
-<!doctype html>
-<title>Vector Analyzer</title>
-<h1>Upload MAT file</h1>
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <ul>
-    {% for category, msg in messages %}
-      <li>{{ msg }}</li>
-    {% endfor %}
-    </ul>
-  {% endif %}
-{% endwith %}
-<form method="post" enctype="multipart/form-data">
-  <input type="file" name="file">
-  <input type="submit" value="Upload">
+{% extends 'base.html' %}
+{% block title %}Vector Analyzer{% endblock %}
+{% block header %}Upload MAT file{% endblock %}
+{% block content %}
+<form method="post" enctype="multipart/form-data" class="mb-4">
+  <div class="input-group">
+    <input type="file" name="file" class="form-control">
+    <button type="submit" class="btn btn-primary">Upload</button>
+  </div>
 </form>
 <h2>Available files</h2>
-<ul>
+<ul class="list-unstyled">
 {% for f in files %}
   <li>{{ f }} -
       <a href="{{ url_for('spectrogram', filename=f) }}">Spectrogram</a> |
-      <a href="{{ url_for('analyze', filename=f) }}">Analyze</a>
+      <a href="{{ url_for('analyze', filename=f) }}">Analyze</a> |
+      <a href="{{ url_for('extract', filename=f) }}">Extract Packet</a>
   </li>
 {% endfor %}
 </ul>
-<p><a href="{{ url_for('generate') }}">Create Vector</a></p>
+<p><a class="btn btn-success" href="{{ url_for('generate') }}">Create Vector</a></p>
+{% endblock %}
