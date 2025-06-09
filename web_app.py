@@ -114,9 +114,12 @@ def index():
         if uploaded and uploaded.filename.endswith('.mat'):
             filename = secure_filename(uploaded.filename)
             if filename:
-                dest = os.path.join(UPLOAD_FOLDER, filename)
-                uploaded.save(dest)
-                flash("File uploaded", "success")
+                try:
+                    dest = os.path.join(UPLOAD_FOLDER, filename)
+                    uploaded.save(dest)
+                    flash("File uploaded", "success")
+                except Exception as e:
+                    flash(f"Error saving file: {str(e)}", "error")
             else:
                 flash("Invalid file name", "error")
         else:
@@ -145,22 +148,21 @@ def generate():
         configs = []
         for i in range(packet_count):
             cfg = {
-                'file': request.form.get(f"file_{i}"),
-                'sample_rate': float(request.form.get(f"sr_{i}") or 56) * 1e6,
-                'freq_shift': float(request.form.get(f"fs_{i}") or 0) * 1e6,
-                'period': float(request.form.get(f"period_{i}") or 0.1) / 1000.0,
-                'pre_samples': int(request.form.get(f"pre_{i}") or 0),
-                'start_time': float(request.form.get(f"start_{i}") or 0) / 1000.0,
+                "vector_length": vector_length,
+                "packet_count": 1,
+                "packet_index": i,
+                "file": request.form.get("file")
             }
-            if cfg['file']:
-                configs.append(cfg)
-        output_format = request.form.get("format", "mat")
-        out_name, spec_name = generate_vector(configs, vector_length, output_format)
-        return render_template(
-            "result.html",
-            vector_file=out_name,
-            spectrogram=spec_name,
-        )
+            configs.append(cfg)
+        try:
+            vector = create_vector(configs)
+            if vector is None:
+                flash("Error creating vector", "error")
+                return render_template("generate.html", files=files, max_packets=MAX_PACKETS)
+            return render_template("vector.html", vector=vector)
+        except Exception as e:
+            flash(f"Error creating vector: {str(e)}", "error")
+            return render_template("generate.html", files=files, max_packets=MAX_PACKETS)
     return render_template("generate.html", files=files, max_packets=MAX_PACKETS)
 
 

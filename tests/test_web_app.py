@@ -30,3 +30,29 @@ def test_invalid_inputs(tmp_path):
     assert response.status_code == 200
     assert b'Create Vector' in response.data
 
+
+def test_file_save_error(tmp_path):
+    client = web_app.app.test_client()
+    web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)
+    # Try to save to a non-existent directory
+    web_app.UPLOAD_FOLDER = str(tmp_path / 'nonexistent')
+    data = {
+        'file': (io.BytesIO(b'data'), 'test.mat')
+    }
+    response = client.post('/', data=data, content_type='multipart/form-data')
+    assert response.status_code == 200
+    assert b'Error saving file' in response.data
+
+
+def test_vector_creation_error(tmp_path):
+    client = web_app.app.test_client()
+    web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)
+    # Try to create vector with invalid file
+    response = client.post('/generate', data={
+        'vector_length': '1',
+        'packet_count': '1',
+        'file': 'nonexistent.mat'
+    })
+    assert response.status_code == 200
+    assert b'Error creating vector' in response.data
+
