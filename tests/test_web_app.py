@@ -71,6 +71,28 @@ def test_extract_packet(tmp_path):
     assert (tmp_path / f'{file_path.name}_extract.png').exists()
 
 
+def test_packet_cache(tmp_path):
+    from scipy.io import savemat
+    import numpy as np
+
+    client = web_app.app.test_client()
+    web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)
+    web_app.UPLOAD_FOLDER = str(tmp_path)
+    web_app.PACKET_CACHE.clear()
+
+    file_path = tmp_path / 'cache.mat'
+    savemat(file_path, {'Y': np.ones(50, dtype=np.complex64), 'xDelta': 1/56e6})
+
+    client.get(f'/spectrogram/{file_path.name}')
+    key = os.path.abspath(file_path)
+    assert key in web_app.PACKET_CACHE
+    obj1 = web_app.PACKET_CACHE[key]['signal']
+
+    client.get(f'/analyze/{file_path.name}')
+    obj2 = web_app.PACKET_CACHE[key]['signal']
+    assert obj1 is obj2
+
+
 def test_file_save_error(tmp_path):
     client = web_app.app.test_client()
     web_app.app.config['UPLOAD_FOLDER'] = str(tmp_path)

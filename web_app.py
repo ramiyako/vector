@@ -31,6 +31,28 @@ app.secret_key = "vector-secret-key"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# cache loaded packets to avoid repeated processing
+PACKET_CACHE = {}
+
+
+def get_cached_packet(filename):
+    """Return (signal, sample_rate) with caching."""
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    key = os.path.abspath(file_path)
+    try:
+        mtime = os.path.getmtime(file_path)
+    except OSError:
+        return None, None
+    info = PACKET_CACHE.get(key)
+    if info is None or info['mtime'] != mtime:
+        signal = load_packet(file_path)
+        sr = get_sample_rate_from_mat(file_path) or TARGET_SAMPLE_RATE
+        info = {'signal': signal, 'sr': sr, 'mtime': mtime}
+        PACKET_CACHE[key] = info
+    return info['signal'], info['sr']
+
+
+
 
 def list_mat_files():
     return [f for f in os.listdir(UPLOAD_FOLDER) if f.lower().endswith(".mat")]
@@ -63,8 +85,8 @@ def generate_vector(configs, vector_length, output_format="mat", normalize=True)
     style_map = {}
 
     for cfg in configs:
+        y, _ = get_cached_packet(cfg['file'])
         file_path = os.path.join(UPLOAD_FOLDER, cfg['file'])
-        y = load_packet(file_path)
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         if base_name not in style_map:
             idx_style = len(style_map) % len(marker_styles)
@@ -136,12 +158,15 @@ def index():
         if uploaded:
             filename = secure_filename(uploaded.filename)
             if filename:
-                try:
-                    dest = os.path.join(UPLOAD_FOLDER, filename)
-                    uploaded.save(dest)
-                    flash("File uploaded", "success")
-                except Exception as e:
-                    flash(f"Error saving file: {str(e)}", "error")
+                PACKET_CACHE.pop(os.path.abspath(dest), None)
+    y, sr = get_cached_packet(filename)
+    y, sr = get_cached_packet(filename)
+    y, sr = get_cached_packet(filename)
+    step = max(len(y) // 1000, 1)
+    preview_signal = (np.abs(y[::step]).tolist())
+        preview_signal=preview_signal,
+        display_step=step,
+        total=total,
             else:
                 flash("Invalid file name", "error")
         else:

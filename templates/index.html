@@ -8,15 +8,23 @@
     <button type="submit" class="btn btn-primary">Upload</button>
   </div>
 </form>
-<h2>Available files</h2>
-<ul class="list-unstyled">
-{% for f in files %}
-  <li>{{ f }} -
-      <a href="{{ url_for('spectrogram', filename=f) }}">Spectrogram</a> |
-      <a href="{{ url_for('analyze', filename=f) }}">Analyze</a> |
-      <a href="{{ url_for('extract', filename=f) }}">Extract Packet</a>
-  </li>
-{% endfor %}
-</ul>
+<h2 class="mt-4">Available files</h2>
+<table class="table table-striped">
+  <thead>
+    <tr><th>Name</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+  {% for f in files %}
+    <tr>
+      <td>{{ f }}</td>
+      <td>
+        <a class="btn btn-sm btn-info" href="{{ url_for('spectrogram', filename=f) }}">Spectrogram</a>
+        <a class="btn btn-sm btn-secondary" href="{{ url_for('analyze', filename=f) }}">Analyze</a>
+        <a class="btn btn-sm btn-warning" href="{{ url_for('extract', filename=f) }}">Extract</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 <p><a class="btn btn-success" href="{{ url_for('generate') }}">Create Vector</a></p>
 {% endblock %}

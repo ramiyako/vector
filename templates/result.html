@@ -2,7 +2,9 @@
 {% block title %}Result{% endblock %}
 {% block header %}Vector Created{% endblock %}
 {% block content %}
-<p><a href="{{ url_for('data_file', filename=vector_file) }}">Download vector ({{ vector_file }})</a></p>
-<p><img class="img-fluid" src="{{ url_for('data_file', filename=spectrogram) }}" alt="Spectrogram"></p>
-<p><a href="{{ url_for('index') }}">Back to Home</a></p>
+<p>
+  <a class="btn btn-success" href="{{ url_for('data_file', filename=vector_file) }}">Download {{ vector_file }}</a>
+</p>
+<img class="img-fluid" src="{{ url_for('data_file', filename=spectrogram) }}" alt="Spectrogram">
+<p class="mt-3"><a href="{{ url_for('index') }}">Back to Home</a></p>
 {% endblock %}

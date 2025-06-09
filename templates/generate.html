@@ -2,7 +2,7 @@
 {% block title %}Create Vector{% endblock %}
 {% block header %}Create Vector{% endblock %}
 {% block content %}
-<form method="post">
+<form method="post" class="mt-4">
   <div class="mb-3">
     <label class="form-label">Vector length (s):</label>
     <input type="text" name="vector_length" value="1" class="form-control">
@@ -12,7 +12,7 @@
     <input type="number" name="packet_count" min="1" max="{{ max_packets }}" value="1" class="form-control">
   </div>
   {% for i in range(max_packets) %}
-  <fieldset class="border p-2 mb-2">
+  <fieldset class="border p-2 mb-3">
     <legend class="w-auto">Packet {{ i }}</legend>
     <div class="mb-2">
       <label class="form-label">File:</label>

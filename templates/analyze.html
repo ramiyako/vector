@@ -2,9 +2,11 @@
 {% block title %}Analysis{% endblock %}
 {% block header %}Analysis for {{ filename }}{% endblock %}
 {% block content %}
-<p>Start sample: {{ packet_start }}</p>
-<p>Pre samples: {{ pre_samples }}</p>
-<p>Post samples: {{ post_samples }}</p>
+<table class="table table-bordered w-auto">
+  <tr><th>Start sample</th><td>{{ packet_start }}</td></tr>
+  <tr><th>Pre samples</th><td>{{ pre_samples }}</td></tr>
+  <tr><th>Post samples</th><td>{{ post_samples }}</td></tr>
+</table>
 <img class="img-fluid" src="{{ url_for('data_file', filename=image) }}" alt="Analysis">
-<p><a href="{{ url_for('index') }}">Back to Home</a></p>
+<p class="mt-3"><a href="{{ url_for('index') }}">Back to Home</a></p>
 {% endblock %}
