@@ -57,8 +57,14 @@ class PacketExtractor:
             try:
                 # טעינת הקובץ
                 data = sio.loadmat(file_path)
-                self.signal = data['Y'].flatten()
-                
+                if 'Y' in data:
+                    self.signal = data['Y'].flatten()
+                else:
+                    candidates = [k for k in data.keys() if not k.startswith('__')]
+                    if len(candidates) == 1:
+                        self.signal = data[candidates[0]].flatten()
+                    else:
+                        raise ValueError(f"לא נמצא משתנה מתאים בקובץ {file_path}. משתנים קיימים: {list(data.keys())}")
                 # קבלת קצב דגימה
                 self.sample_rate = get_sample_rate_from_mat(file_path)
                 if self.sample_rate:
@@ -66,7 +72,6 @@ class PacketExtractor:
                 else:
                     self.sample_rate_var.set("56")  # ברירת מחדל
                     self.sample_rate = 56e6
-                    
             except Exception as e:
                 tk.messagebox.showerror("שגיאה", f"שגיאה בטעינת הקובץ: {e}")
                 
