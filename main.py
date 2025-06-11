@@ -293,7 +293,22 @@ class VectorApp:
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
             f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
-            ranges = compute_freq_ranges(freq_shifts)
+            # נקה את freq_shifts מערכים לא חוקיים
+            clean_freq_shifts = []
+            for val in freq_shifts:
+                if isinstance(val, (int, float)) and not isinstance(val, bool):
+                    clean_freq_shifts.append(val)
+                else:
+                    print(f"אזהרה: ערך freq_shift לא חוקי: {val} ({type(val)})")
+            ranges = compute_freq_ranges(clean_freq_shifts)
+            if ranges:
+                try:
+                    ranges = list(ranges)
+                    ranges = [tuple(r) for r in ranges]
+                except Exception as e:
+                    import warnings
+                    warnings.warn(f"ranges לא תקין: {e}. תוצג כל הספקטרוגרמה.")
+                    ranges = None
             plot_spectrogram(
                 f,
                 t,

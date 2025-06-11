@@ -41,9 +41,19 @@ def get_sample_rate_from_mat(file_path):
     return None
 
 def load_packet(file_path):
-    """טוען פקטה מקובץ .mat ומחזיר תמיד np.complex64 או np.float32"""
+    """טוען פקטה מקובץ .mat ומחזיר תמיד np.complex64 או np.float32
+    תומך גם בקבצים שבהם המשתנה אינו Y, אלא משתנה בודד אחר.
+    """
     data = sio.loadmat(file_path)
-    y = data['Y'].flatten()
+    if 'Y' in data:
+        y = data['Y'].flatten()
+    else:
+        # חפש משתנה בודד שאינו פרטי (לא __header__ וכו')
+        candidates = [k for k in data.keys() if not k.startswith('__')]
+        if len(candidates) == 1:
+            y = data[candidates[0]].flatten()
+        else:
+            raise ValueError(f"לא נמצא משתנה מתאים בקובץ {file_path}. משתנים קיימים: {list(data.keys())}")
     # המרה לסוג מתאים
     if np.iscomplexobj(y):
         return y.astype(np.complex64)
@@ -160,54 +170,48 @@ def plot_spectrogram(
     freq_ranges=None,
     show_colorbar=True,
 ):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות.
-
-    Parameters
-    ----------
-    f, t, Sxx : arrays
-        תוצרי ``create_spectrogram``.
-    center_freq : float, optional
-        תדר מרכזי ששימש בחישוב הספקטרוגרמה. הציר מוצג תמיד בתדר מוחלט
-        (MHz), ולכן הפרמטר נדרש רק לחישובים פנימיים.
-    title : str
-        כותרת הגרף.
-    packet_start : int or None
-        דגימה המסמנת את תחילת הפקטה (לשרטוט בקו אנכי).
-    sample_rate : float or None
-        קצב הדגימה של האות לצורך המרת מיקום הפקטה לזמן.
-    signal : array or None
-        האות המקורי להצגה בחלון התחתון.
-    packet_markers : list
-        רשימת סמנים. כל סמן הוא ``(time, freq, label[, style])`` כאשר ``style``
-        הוא סימון matplotlib לתצוגה (למשל ``'x'``). אם ``style`` לא סופק
-        ייבחר סגנון אוטומטי.
-    freq_ranges : list of (f_low, f_high), optional
-        אם מצוין, מתווה הספקטרוגרמה בעזרת ציר שבור המאפשר דילוג על תחומי
-        תדר ללא עניין.
-    """
+    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות."""
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     freq_axis = f / 1e6
 
+    # הגנה: ודא ש-freq_ranges הוא list של tuples
     if freq_ranges:
-        if brokenaxes is None:
-            warnings.warn(
-                "brokenaxes is not installed; displaying full frequency range"
-            )
+        try:
+            freq_ranges = list(freq_ranges)
+            freq_ranges = [tuple(fr) for fr in freq_ranges]
+        except Exception as e:
+            warnings.warn(f"freq_ranges לא תקין: {e}. תוצג כל הספקטרוגרמה.")
             freq_ranges = None
-        else:
-            ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
-            fig = plt.figure(figsize=(12, 6))
-            ax1 = brokenaxes(ylims=ylims, hspace=0.05)
-            im = ax1.pcolormesh(
-                t,
-                freq_axis,
-                Sxx_db,
-                shading='nearest',
-                cmap='viridis',
-                norm=Normalize(vmin=vmin, vmax=vmax),
-            )
-    else:
+
+    # אם יש רק טווח אחד, אל תשתמש ב-brokenaxes
+    if freq_ranges and len(freq_ranges) == 1:
+        freq_ranges = None
+
+    if freq_ranges and len(freq_ranges) > 1:
+        try:
+            if brokenaxes is None:
+                warnings.warn(
+                    "brokenaxes is not installed; displaying full frequency range"
+                )
+                freq_ranges = None
+            else:
+                ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
+                fig = plt.figure(figsize=(12, 6))
+                ax1 = brokenaxes(ylims=ylims, hspace=0.05)
+                im = ax1.pcolormesh(
+                    t,
+                    freq_axis,
+                    Sxx_db,
+                    shading='nearest',
+                    cmap='viridis',
+                    norm=Normalize(vmin=vmin, vmax=vmax),
+                )
+        except Exception as e:
+            warnings.warn(f"שגיאה בשימוש ב-brokenaxes: {e}. תוצג כל הספקטרוגרמה.")
+            freq_ranges = None
+
+    if not freq_ranges:
         if signal is not None:
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
         else:
