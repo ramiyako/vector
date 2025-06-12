@@ -12,7 +12,11 @@
 - שמירת התוצאה כקובץ .mat או .wv
 
 ## התקנה
+מומלץ ליצור סביבת **virtualenv** על מנת שהספריות הדרושות יותקנו באופן מבודד ולא יהיו תלויים בגרסאות שכבר מותקנות במערכת. יש לוודא כי מותקנת גרסת פייתון 3.8 ומעלה.
+
 ```bash
+python -m venv venv
+source venv/bin/activate  # ב-Windows יש להריץ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
