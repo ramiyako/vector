@@ -251,13 +251,9 @@ class VectorApp:
                 # Insert packet at the specified offset and every period thereafter
                 for start in range(start_offset, total_samples, period_samples):
                     end = start + len(y)
-                    if start >= total_samples:
-                        break
                     if end > total_samples:
-                        y_to_add = y[: total_samples - start]
-                    else:
-                        y_to_add = y
-                    vector[start:start + len(y_to_add)] += y_to_add
+                        break  # לא להכניס מופע חתוך, אבל כן להכניס את כל המופעים התקינים
+                    vector[start:end] += y
                     markers.append(
                         (
                             start / TARGET_SAMPLE_RATE,
