@@ -11,6 +11,7 @@ from utils import (
     get_sample_rate_from_mat,
     apply_frequency_shift,
     compute_freq_ranges,
+    insert_signal,
 )
 
 MAX_PACKETS = 6
@@ -250,14 +251,9 @@ class VectorApp:
 
                 # Insert packet at the specified offset and every period thereafter
                 for start in range(start_offset, total_samples, period_samples):
-                    end = start + len(y)
                     if start >= total_samples:
                         break
-                    if end > total_samples:
-                        y_to_add = y[: total_samples - start]
-                    else:
-                        y_to_add = y
-                    vector[start : start + len(y_to_add)] += y_to_add
+                    insert_signal(vector, y, start)
                     markers.append(
                         (
                             start / TARGET_SAMPLE_RATE,

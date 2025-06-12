@@ -170,3 +170,41 @@ def test_save_vector_wv(tmp_path):
     assert b"TYPE: SMU-WV" in header
 
 
+def test_insert_signal_basic():
+    vec = np.zeros(10, dtype=np.float32)
+    sig = np.ones(3, dtype=np.float32)
+    from utils import insert_signal
+
+    insert_signal(vec, sig, 2)
+    assert np.allclose(vec[:2], 0)
+    assert np.allclose(vec[2:5], 1)
+
+
+def test_insert_signal_negative_offset():
+    vec = np.zeros(5, dtype=np.float32)
+    sig = np.array([0, 1, 2], dtype=np.float32)
+    from utils import insert_signal
+
+    insert_signal(vec, sig, -1)
+    assert np.allclose(vec[:2], [1, 2])
+    assert np.allclose(vec[2:], 0)
+
+
+def test_insert_signal_truncates():
+    vec = np.zeros(4, dtype=np.float32)
+    sig = np.array([5, 6, 7], dtype=np.float32)
+    from utils import insert_signal
+
+    insert_signal(vec, sig, 3)
+    assert np.allclose(vec, [0, 0, 0, 5])
+
+
+def test_insert_signal_offset_beyond_end():
+    vec = np.zeros(3, dtype=np.float32)
+    sig = np.ones(2, dtype=np.float32)
+    from utils import insert_signal
+
+    insert_signal(vec, sig, 5)
+    assert np.all(vec == 0)
+
+
