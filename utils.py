@@ -383,18 +383,18 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
-    """מציג ספקטוגרמה עם קו ניתן להזזה לתיקון מיקום תחילת הפקטה.
-
-    המשתמש יכול לגרור את הקו האדום ובסיום (סגירת החלון) יוחזר המיקום החדש
-    בדגימות.
-    """
-
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+
+    # הפוך את ציר התדרים והמטריצה לסדר יורד (חיובי משמאל, שלילי מימין)
+    if f[0] < f[-1]:
+        f = f[::-1]
+        Sxx_db = Sxx_db[::-1, :]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
     ax1.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_ylim(ax1.get_ylim()[::-1])  # הפוך את כיוון הציר האנכי
     ax1.set_title('Spectrogram - drag the red line to adjust start')
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
@@ -444,33 +444,22 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     return state['value']
 
 def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None):
-    """Interactive GUI to adjust packet start (green) and end (red) positions.
-
-    Parameters
-    ----------
-    signal : array-like
-        The full signal.
-    sample_rate : float
-        Sampling rate in Hz.
-    start_sample : int, optional
-        Initial start sample position.
-    end_sample : int or None, optional
-        Initial end sample position. Defaults to ``len(signal)``.
-
-    Returns
-    -------
-    tuple of int
-        The selected (start_sample, end_sample).
-    """
+    """Interactive GUI to adjust packet start (green) and end (red) positions."""
     if end_sample is None:
         end_sample = len(signal)
 
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
+    # הפוך את ציר התדרים והמטריצה לסדר יורד (חיובי משמאל, שלילי מימין)
+    if f[0] < f[-1]:
+        f = f[::-1]
+        Sxx_db = Sxx_db[::-1, :]
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
     ax1.pcolormesh(t, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_ylim(ax1.get_ylim()[::-1])  # הפוך את כיוון הציר האנכי
     ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')

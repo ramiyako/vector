@@ -231,10 +231,6 @@ class VectorApp:
                     style_map[base_name] = (marker_styles[idx_style], marker_colors[idx_color])
                 marker_style, marker_color = style_map[base_name]
                 
-                # הסרת הזבל לפני הפקטה
-                if cfg['pre_samples'] > 0:
-                    y = y[cfg['pre_samples']:]
-                
                 # Resample ל-10MHz
                 if cfg['sample_rate'] != TARGET_SAMPLE_RATE:
                     y = resample_signal(y, cfg['sample_rate'], TARGET_SAMPLE_RATE)
