@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Vector App{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/lux/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+  </style>
+</head>
+<body class="p-4">
+<div class="container">
+  <h1 class="mb-4">{% block header %}{% endblock %}</h1>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-3">
+      {% for category, msg in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else category }}" role="alert">{{ msg }}</div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

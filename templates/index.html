@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Vector Analyzer{% endblock %}
+{% block header %}Upload MAT file{% endblock %}
+{% block content %}
+<form method="post" enctype="multipart/form-data" class="mb-4">
+  <div class="input-group">
+    <input type="file" name="file" class="form-control">
+    <button type="submit" class="btn btn-primary">Upload</button>
+  </div>
+</form>
+<h2 class="mt-4">Available files</h2>
+<table class="table table-striped">
+  <thead>
+    <tr><th>Name</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+  {% for f in files %}
+    <tr>
+      <td>{{ f }}</td>
+      <td>
+        <a class="btn btn-sm btn-info" href="{{ url_for('spectrogram', filename=f) }}">Spectrogram</a>
+        <a class="btn btn-sm btn-secondary" href="{{ url_for('analyze', filename=f) }}">Analyze</a>
+        <a class="btn btn-sm btn-warning" href="{{ url_for('extract', filename=f) }}">Extract</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p><a class="btn btn-success" href="{{ url_for('generate') }}">Create Vector</a></p>
+{% endblock %}

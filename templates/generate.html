@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Create Vector{% endblock %}
+{% block header %}Create Vector{% endblock %}
+{% block content %}
+<form method="post" class="mt-4">
+  <div class="mb-3">
+    <label class="form-label">Vector length (s):</label>
+    <input type="text" name="vector_length" value="1" class="form-control">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Number of packets:</label>
+    <input type="number" name="packet_count" min="1" max="{{ max_packets }}" value="1" class="form-control">
+  </div>
+  {% for i in range(max_packets) %}
+  <fieldset class="border p-2 mb-3">
+    <legend class="w-auto">Packet {{ i }}</legend>
+    <div class="mb-2">
+      <label class="form-label">File:</label>
+      <select name="file_{{ i }}" class="form-select">
+        <option value="">-</option>
+        {% for f in files %}
+        <option value="{{ f }}">{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row g-2 mb-2">
+      <div class="col">
+        <label class="form-label">Sample Rate (MHz):</label>
+        <input type="text" name="sr_{{ i }}" value="56" class="form-control">
+      </div>
+      <div class="col">
+        <label class="form-label">Freq Shift (MHz):</label>
+        <input type="text" name="fs_{{ i }}" value="0" class="form-control">
+      </div>
+    </div>
+    <div class="row g-2 mb-2">
+      <div class="col">
+        <label class="form-label">Period (ms):</label>
+        <input type="text" name="period_{{ i }}" value="100" class="form-control">
+      </div>
+      <div class="col">
+        <label class="form-label">Pre samples:</label>
+        <input type="text" name="pre_{{ i }}" value="0" class="form-control">
+      </div>
+      <div class="col">
+        <label class="form-label">Start offset (ms):</label>
+        <input type="text" name="start_{{ i }}" value="0" class="form-control">
+      </div>
+    </div>
+  </fieldset>
+  {% endfor %}
+  <div class="mb-3">
+    <label class="form-label">Output format:</label>
+    <select name="format" class="form-select">
+      <option value="mat">MAT</option>
+      <option value="wv">WV</option>
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Generate</button>
+</form>
+{% endblock %}
