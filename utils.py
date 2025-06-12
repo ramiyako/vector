@@ -10,6 +10,7 @@ try:
     from brokenaxes import brokenaxes
 except ImportError:  # pragma: no cover - optional dependency
     brokenaxes = None
+from matplotlib.widgets import Button
 
 # הגדרת כיוון RTL לטקסט בעברית
 plt.rcParams['font.family'] = 'Arial'
@@ -391,40 +392,61 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         f = f[::-1]
         Sxx_db = Sxx_db[::-1, :]
 
+    # המרת ציר זמן למיליסקנד
+    t_ms = t * 1000
+    sample_indices = np.arange(len(signal))
+    sample_times_ms = sample_indices / sample_rate * 1000
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
 
-    ax1.pcolormesh(t, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-    ax1.set_ylim(ax1.get_ylim()[::-1])  # הפוך את כיוון הציר האנכי
+    pcm = ax1.pcolormesh(t_ms, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_ylim(ax1.get_ylim()[::-1])
     ax1.set_title('Spectrogram - drag the red line to adjust start')
-    ax1.set_xlabel('Time [s]')
+    ax1.set_xlabel('Time [ms]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
+    # קביעת שנתות כל 0.1ms
+    min_t, max_t = t_ms[0], t_ms[-1]
+    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
 
-    ax2.plot(np.abs(signal))
-    ax2.set_xlabel('Samples')
+    ax2.plot(sample_times_ms, np.abs(signal))
+    ax2.set_xlabel('Time [ms]')
     ax2.set_ylabel('Amplitude')
     ax2.grid(True)
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
 
-    line1 = ax1.axvline(packet_start / sample_rate, color='r', linestyle='--')
-    line2 = ax2.axvline(packet_start, color='r', linestyle='--')
+    # קו מקווקו ומדבקה
+    packet_time_ms = packet_start / sample_rate * 1000
+    line1 = ax1.axvline(packet_time_ms, color='r', linestyle='--')
+    line2 = ax2.axvline(packet_time_ms, color='r', linestyle='--')
+    # תווית אופקית (annotation)
+    label = ax1.annotate(f"{packet_time_ms*1000:.0f} μs", xy=(packet_time_ms, ax1.get_ylim()[1]),
+                        xytext=(0, 5), textcoords='offset points', ha='center', va='bottom', color='red', fontsize=10,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
 
     state = {'drag': False, 'value': packet_start}
 
     def _press(event):
         if event.inaxes not in (ax1, ax2):
             return
-        x = event.xdata * sample_rate if event.inaxes is ax1 else event.xdata
-        if abs(x - state['value']) < sample_rate * 0.01:
+        x_ms = event.xdata
+        x_sample = int(x_ms * sample_rate / 1000) if event.inaxes is ax1 else int(event.xdata * sample_rate / 1000)
+        if abs(x_sample - state['value']) < sample_rate * 0.01:
             state['drag'] = True
 
     def _move(event):
         if not state['drag'] or event.inaxes not in (ax1, ax2):
             return
-        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
-        x = max(0, min(len(signal)-1, x))
-        state['value'] = x
-        line1.set_xdata([x / sample_rate, x / sample_rate])
-        line2.set_xdata([x, x])
+        x_ms = event.xdata
+        x_sample = int(x_ms * sample_rate / 1000) if event.inaxes is ax1 else int(event.xdata * sample_rate / 1000)
+        x_sample = max(0, min(len(signal)-1, x_sample))
+        state['value'] = x_sample
+        packet_time_ms = x_sample / sample_rate * 1000
+        line1.set_xdata([packet_time_ms, packet_time_ms])
+        line2.set_xdata([packet_time_ms, packet_time_ms])
+        # עדכון תווית
+        label.set_position((packet_time_ms, ax1.get_ylim()[1]))
+        label.set_text(f"{packet_time_ms*1000:.0f} μs")
         fig.canvas.draw_idle()
 
     def _release(event):
@@ -444,38 +466,76 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     return state['value']
 
 def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None):
-    """Interactive GUI to adjust packet start (green) and end (red) positions."""
     if end_sample is None:
         end_sample = len(signal)
 
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
-    # הפוך את ציר התדרים והמטריצה לסדר יורד (חיובי משמאל, שלילי מימין)
     if f[0] < f[-1]:
         f = f[::-1]
         Sxx_db = Sxx_db[::-1, :]
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    t_ms = t * 1000
+    sample_indices = np.arange(len(signal))
+    sample_times_ms = sample_indices / sample_rate * 1000
 
-    ax1.pcolormesh(t, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
-    ax1.set_ylim(ax1.get_ylim()[::-1])  # הפוך את כיוון הציר האנכי
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    plt.subplots_adjust(bottom=0.18)  # מקום לכפתורים
+
+    pcm = ax1.pcolormesh(t_ms, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax1.set_ylim(ax1.get_ylim()[::-1])
     ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
-    ax1.set_xlabel('Time [s]')
+    ax1.set_xlabel('Time [ms]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
+    min_t, max_t = t_ms[0], t_ms[-1]
+    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
 
-    ax2.plot(np.abs(signal))
-    ax2.set_xlabel('Samples')
+    ax2.plot(sample_times_ms, np.abs(signal))
+    ax2.set_xlabel('Time [ms]')
     ax2.set_ylabel('Amplitude')
     ax2.grid(True)
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
 
-    start_line1 = ax1.axvline(start_sample / sample_rate, color='g', linestyle='--', linewidth=2)
-    end_line1 = ax1.axvline(end_sample / sample_rate, color='r', linestyle='--', linewidth=1)
-    start_line2 = ax2.axvline(start_sample, color='g', linestyle='--', linewidth=2)
-    end_line2 = ax2.axvline(end_sample, color='r', linestyle='--', linewidth=1)
-
+    start_time_ms = start_sample / sample_rate * 1000
+    end_time_ms = end_sample / sample_rate * 1000
+    start_line1 = ax1.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
+    end_line1 = ax1.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
+    start_line2 = ax2.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
+    end_line2 = ax2.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
+    # תוויות אופקיות
+    label_start = ax1.annotate(f"{start_time_ms*1000:.0f} μs", xy=(start_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='green', fontsize=10,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    label_end = ax1.annotate(f"{end_time_ms*1000:.0f} μs", xy=(end_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='red', fontsize=10,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    
     state = {'drag': None, 'active': 'start', 'start': start_sample, 'end': end_sample}
+    # תווית מרווח (מעל הפינה הימנית העליונה)
+    def get_delta_us():
+        return abs((state['end'] - state['start']) / sample_rate * 1e6)
+    delta_us = get_delta_us()
+    delta_label = ax1.annotate(f"Δ: {delta_us:.0f} μs", xy=(1, 1.08), xycoords='axes fraction', ha='right', va='bottom', fontsize=14, color='blue', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+
+    def update_lines_and_labels():
+        start_time_ms = state['start'] / sample_rate * 1000
+        end_time_ms = state['end'] / sample_rate * 1000
+        start_line1.set_xdata([start_time_ms, start_time_ms])
+        end_line1.set_xdata([end_time_ms, end_time_ms])
+        start_line2.set_xdata([start_time_ms, start_time_ms])
+        end_line2.set_xdata([end_time_ms, end_time_ms])
+        # עדכון תוויות הזמן לראש הקו (y התחתון)
+        y_bottom = ax1.get_ylim()[0]
+        label_start.set_position((start_time_ms, y_bottom))
+        label_start.set_text(f"{start_time_ms*1000:.0f} μs")
+        label_end.set_position((end_time_ms, y_bottom))
+        label_end.set_text(f"{end_time_ms*1000:.0f} μs")
+        # עדכון תווית המרווח
+        delta_us = get_delta_us()
+        delta_label.set_text(f"Δ: {delta_us:.0f} μs")
+        fig.canvas.draw_idle()
 
     def _select(which):
         state['active'] = which
@@ -492,36 +552,47 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     def _press(event):
         if event.inaxes not in (ax1, ax2):
             return
-        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
-        x = max(0, min(len(signal) - 1, x))
+        x_ms = event.xdata
+        x_sample = int(x_ms * sample_rate / 1000) if event.inaxes is ax1 else int(event.xdata * sample_rate / 1000)
+        x_sample = max(0, min(len(signal) - 1, x_sample))
         state['drag'] = state['active']
         if state['drag'] == 'start':
-            state['start'] = x
-            start_line1.set_xdata([x / sample_rate, x / sample_rate])
-            start_line2.set_xdata([x, x])
+            state['start'] = x_sample
         else:
-            state['end'] = x
-            end_line1.set_xdata([x / sample_rate, x / sample_rate])
-            end_line2.set_xdata([x, x])
-        fig.canvas.draw_idle()
+            state['end'] = x_sample
+        update_lines_and_labels()
 
     def _move(event):
         if state['drag'] is None or event.inaxes not in (ax1, ax2):
             return
-        x = int(event.xdata * sample_rate) if event.inaxes is ax1 else int(event.xdata)
-        x = max(0, min(len(signal) - 1, x))
+        x_ms = event.xdata
+        x_sample = int(x_ms * sample_rate / 1000) if event.inaxes is ax1 else int(event.xdata * sample_rate / 1000)
+        x_sample = max(0, min(len(signal) - 1, x_sample))
         if state['drag'] == 'start':
-            state['start'] = x
-            start_line1.set_xdata([x / sample_rate, x / sample_rate])
-            start_line2.set_xdata([x, x])
+            state['start'] = x_sample
         else:
-            state['end'] = x
-            end_line1.set_xdata([x / sample_rate, x / sample_rate])
-            end_line2.set_xdata([x, x])
-        fig.canvas.draw_idle()
+            state['end'] = x_sample
+        update_lines_and_labels()
 
     def _release(event):
         state['drag'] = None
+
+    # כפתורי הזזה - מיקום חדש במרכז מתחת לגרף התחתון
+    axprev = plt.axes([0.42, 0.01, 0.07, 0.05])
+    axnext = plt.axes([0.51, 0.01, 0.07, 0.05])
+    bprev = Button(axprev, '<< 1μs')
+    bnext = Button(axnext, '1μs >>')
+
+    def move_line(delta_us):
+        delta_samples = int(round(delta_us * sample_rate / 1e6))
+        if state['active'] == 'start':
+            state['start'] = max(0, min(len(signal) - 1, state['start'] + delta_samples))
+        else:
+            state['end'] = max(0, min(len(signal) - 1, state['end'] + delta_samples))
+        update_lines_and_labels()
+
+    bprev.on_clicked(lambda event: move_line(-1))
+    bnext.on_clicked(lambda event: move_line(1))
 
     cid_press = fig.canvas.mpl_connect('button_press_event', _press)
     cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
