@@ -14,6 +14,7 @@ from utils import (
     save_vector_wv,
     normalize_signal,
     check_vector_power_uniformity,
+    enforce_vector_power_uniformity,
 )
 
 
@@ -187,5 +188,11 @@ def test_check_vector_power_uniformity():
 
     vec = np.ones(2000, dtype=np.complex64)
     check_vector_power_uniformity(vec, window_size=100, max_db_delta=3)
+
+
+def test_enforce_vector_power_uniformity():
+    vec = np.concatenate([np.ones(1000), 0.1 * np.ones(1000)]).astype(np.float32)
+    fixed = enforce_vector_power_uniformity(vec, window_size=100, max_db_delta=3)
+    check_vector_power_uniformity(fixed, window_size=100, max_db_delta=3)
 
 

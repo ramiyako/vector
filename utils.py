@@ -157,6 +157,55 @@ def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
             f"Vector power variation {db.max() - db.min():.2f} dB exceeds {max_db_delta} dB"
         )
 
+
+def enforce_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
+    """Scale blocks within ``vector`` so RMS variation stays within ``max_db_delta``.
+
+    Each non-overlapping block of size ``window_size`` is analyzed. Blocks that
+    differ from the maximum block RMS by more than ``max_db_delta`` dB are scaled
+    up to match this maximum. The result is normalized so the overall peak
+    amplitude remains 1.0.
+    """
+
+    if len(vector) == 0 or window_size <= 0:
+        return vector.astype(np.complex64 if np.iscomplexobj(vector) else np.float32)
+
+    window_size = min(len(vector), window_size)
+
+    rms_values = []
+    for start in range(0, len(vector), window_size):
+        end = min(start + window_size, len(vector))
+        block = vector[start:end]
+        rms = np.sqrt(np.mean(np.abs(block) ** 2))
+        if rms > 1e-12:
+            rms_values.append(rms)
+
+    if len(rms_values) <= 1:
+        return normalize_signal(vector)
+
+    target_rms = max(rms_values)
+    corrected = vector.copy().astype(np.complex64 if np.iscomplexobj(vector) else np.float32)
+
+    for start in range(0, len(corrected), window_size):
+        end = min(start + window_size, len(corrected))
+        block = corrected[start:end]
+        rms = np.sqrt(np.mean(np.abs(block) ** 2))
+        if rms == 0:
+            continue
+        db_diff = 20 * np.log10(target_rms / rms)
+        if abs(db_diff) > max_db_delta:
+            corrected[start:end] = block * (target_rms / rms)
+
+    corrected = normalize_signal(corrected)
+
+    try:
+        check_vector_power_uniformity(corrected, window_size, max_db_delta)
+    except ValueError:
+        # If still not uniform, raise for visibility
+        raise
+
+    return corrected
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
