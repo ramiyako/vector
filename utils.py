@@ -86,6 +86,38 @@ def apply_frequency_shift(signal, freq_shift, sample_rate):
     return shifted.astype(np.complex64)
 
 
+def insert_signal(dst, signal, offset):
+    """Insert ``signal`` into ``dst`` starting at ``offset``.
+
+    Parameters
+    ----------
+    dst : ndarray
+        Destination array modified in-place.
+    signal : ndarray
+        Signal to insert. Must be one-dimensional.
+    offset : int
+        Index in ``dst`` where the signal should start. Negative values shift the
+        start inside ``signal`` itself.
+
+    Notes
+    -----
+    Only the portion that fits inside ``dst`` is added. If ``offset`` is greater
+    than the length of ``dst`` nothing happens.
+    """
+
+    offset = int(round(offset))
+    if offset < 0:
+        signal = signal[-offset:]
+        offset = 0
+    if offset >= len(dst) or len(signal) == 0:
+        return
+    end = offset + len(signal)
+    if end > len(dst):
+        dst[offset:] += signal[: len(dst) - offset]
+    else:
+        dst[offset:end] += signal
+
+
 def compute_freq_ranges(shifts, margin=1e6):
     """Return merged frequency ranges around each shift.
 
