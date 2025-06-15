@@ -114,6 +114,95 @@ def compute_freq_ranges(shifts, margin=1e6):
             ranges.append((start, end))
     return ranges
 
+
+def normalize_signal(sig, target_peak=1.0):
+    """Scale a signal so its peak amplitude equals ``target_peak``."""
+    max_abs = np.max(np.abs(sig))
+    if max_abs == 0:
+        dtype = np.complex64 if np.iscomplexobj(sig) else np.float32
+        return sig.astype(dtype)
+    scaled = sig / max_abs * target_peak
+    dtype = np.complex64 if np.iscomplexobj(scaled) else np.float32
+    return scaled.astype(dtype)
+
+
+def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
+    """Validate uniform power across ``vector`` using block RMS measurement.
+
+    The vector is divided into non-overlapping blocks of ``window_size`` and the
+    RMS power of each block is computed. If the difference between the maximum
+    and minimum block power exceeds ``max_db_delta`` in dB, a ``ValueError`` is
+    raised.
+    """
+
+    if window_size <= 0:
+        return
+    if window_size > len(vector):
+        window_size = len(vector)
+
+    n_blocks = len(vector) // window_size
+    if n_blocks < 2:
+        return
+
+    trimmed = vector[: n_blocks * window_size]
+    blocks = trimmed.reshape(n_blocks, window_size)
+    rms = np.sqrt(np.mean(np.abs(blocks) ** 2, axis=1))
+
+    rms = rms[rms > 1e-12]
+    if len(rms) == 0:
+        return
+    db = 20 * np.log10(rms)
+    if db.max() - db.min() > max_db_delta:
+        raise ValueError(
+            f"Vector power variation {db.max() - db.min():.2f} dB exceeds {max_db_delta} dB"
+        )
+
+
+def equalize_vector_power(vector, window_size=1024, max_db_delta=3):
+    """Scale each block so that RMS power is uniform within ``max_db_delta``.
+
+    Parameters
+    ----------
+    vector : ndarray
+        Input signal (real or complex).
+    window_size : int, optional
+        Size of each block in samples.
+    max_db_delta : float, optional
+        Maximum allowed difference between blocks after normalization.
+
+    Returns
+    -------
+    ndarray
+        The power-equalized vector with the same dtype as the input.
+    """
+    if window_size <= 0 or len(vector) == 0:
+        return vector.astype(vector.dtype)
+
+    if window_size > len(vector):
+        window_size = len(vector)
+
+    n_blocks = len(vector) // window_size
+    if n_blocks == 0:
+        return vector.astype(vector.dtype)
+
+    trimmed = vector[: n_blocks * window_size]
+    remainder = vector[n_blocks * window_size :]
+    blocks = trimmed.reshape(n_blocks, window_size)
+    rms = np.sqrt(np.mean(np.abs(blocks) ** 2, axis=1))
+    nonzero = rms > 1e-12
+    if not np.any(nonzero):
+        return vector.astype(vector.dtype)
+
+    target_rms = np.mean(rms[nonzero])
+    scales = np.ones_like(rms)
+    scales[nonzero] = target_rms / rms[nonzero]
+    blocks = blocks * scales[:, None]
+    result = np.concatenate([blocks.reshape(-1), remainder]).astype(vector.dtype)
+
+    # Verify the result meets the desired uniformity
+    check_vector_power_uniformity(result, window_size=window_size, max_db_delta=max_db_delta)
+    return result
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
