@@ -11,6 +11,8 @@ from utils import (
     get_sample_rate_from_mat,
     apply_frequency_shift,
     compute_freq_ranges,
+    normalize_signal,
+    check_vector_power_uniformity,
 )
 
 MAX_PACKETS = 6
@@ -241,6 +243,9 @@ class VectorApp:
                     freq_shifts.append(cfg['freq_shift'])
                 else:
                     freq_shifts.append(0)
+
+                if self.normalize.get():
+                    y = normalize_signal(y)
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
@@ -274,6 +279,7 @@ class VectorApp:
                 max_abs = np.abs(vector).max()
                 if max_abs > 0:
                     vector = vector / max_abs
+                check_vector_power_uniformity(vector, window_size=int(0.001 * TARGET_SAMPLE_RATE))
                     
             if output_format == "wv":
                 from utils import save_vector_wv
