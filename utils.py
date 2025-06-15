@@ -114,6 +114,67 @@ def compute_freq_ranges(shifts, margin=1e6):
             ranges.append((start, end))
     return ranges
 
+
+def normalize_signal(sig, target_peak=1.0):
+    """Scale a signal so its peak amplitude equals ``target_peak``."""
+    max_abs = np.max(np.abs(sig))
+    if max_abs == 0:
+        dtype = np.complex64 if np.iscomplexobj(sig) else np.float32
+        return sig.astype(dtype)
+    scaled = sig / max_abs * target_peak
+    dtype = np.complex64 if np.iscomplexobj(scaled) else np.float32
+    return scaled.astype(dtype)
+
+
+def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3, rectify=False):
+    """Validate or fix non-uniform power across ``vector``.
+
+    The vector is divided into non-overlapping blocks of ``window_size`` and the
+    RMS power of each block is computed. If the difference between the maximum
+    and minimum block power exceeds ``max_db_delta`` in dB then either a
+    ``ValueError`` is raised or, when ``rectify`` is ``True``, each block is
+    scaled to match the median RMS level.
+    """
+
+    if window_size <= 0:
+        return
+    if window_size > len(vector):
+        window_size = len(vector)
+
+    n_blocks = len(vector) // window_size
+    if n_blocks < 2:
+        return
+
+    trimmed = vector[: n_blocks * window_size]
+    blocks = trimmed.reshape(n_blocks, window_size)
+    rms = np.sqrt(np.mean(np.abs(blocks) ** 2, axis=1))
+
+    valid = rms > 1e-12
+    rms_valid = rms[valid]
+    if len(rms_valid) == 0:
+        return
+
+    db = 20 * np.log10(rms_valid)
+    delta = db.max() - db.min()
+
+    if delta > max_db_delta:
+        if not rectify:
+            raise ValueError(
+                f"Vector power variation {delta:.2f} dB exceeds {max_db_delta} dB"
+            )
+
+        target_rms = np.median(rms_valid)
+        scale = np.ones_like(rms, dtype=np.float32)
+        scale[valid] = target_rms / rms_valid
+        blocks *= scale[:, None]
+        vector[: n_blocks * window_size] = blocks.reshape(-1)
+        # scale any remaining tail with last factor
+        if n_blocks * window_size < len(vector):
+            vector[n_blocks * window_size :] *= scale[-1]
+
+        # verify again (without rectify to avoid infinite recursion)
+        check_vector_power_uniformity(vector, window_size, max_db_delta, rectify=False)
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
