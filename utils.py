@@ -114,6 +114,49 @@ def compute_freq_ranges(shifts, margin=1e6):
             ranges.append((start, end))
     return ranges
 
+
+def normalize_signal(sig, target_peak=1.0):
+    """Scale a signal so its peak amplitude equals ``target_peak``."""
+    max_abs = np.max(np.abs(sig))
+    if max_abs == 0:
+        dtype = np.complex64 if np.iscomplexobj(sig) else np.float32
+        return sig.astype(dtype)
+    scaled = sig / max_abs * target_peak
+    dtype = np.complex64 if np.iscomplexobj(scaled) else np.float32
+    return scaled.astype(dtype)
+
+
+def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
+    """Validate uniform power across ``vector`` using a sliding RMS window.
+
+    The original implementation used ``np.convolve`` which became extremely
+    slow for large vectors.  This version uses a cumulative sum approach that
+    scales linearly with ``len(vector)``.
+    """
+
+    if len(vector) == 0:
+        return
+
+    if window_size <= 0 or window_size > len(vector):
+        window_size = len(vector)
+
+    power = np.abs(vector) ** 2
+
+    # cumulative sum trick to compute moving average efficiently
+    cumsum = np.cumsum(np.concatenate([[0.0], power]))
+    window_power = cumsum[window_size:] - cumsum[:-window_size]
+    rms = np.sqrt(window_power / window_size)
+
+    rms = rms[rms > 1e-12]
+    if rms.size == 0:
+        return
+
+    db = 20 * np.log10(rms)
+    if db.max() - db.min() > max_db_delta:
+        raise ValueError(
+            f"Vector power variation {db.max() - db.min():.2f} dB exceeds {max_db_delta} dB"
+        )
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
