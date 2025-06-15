@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -11,6 +12,9 @@ from utils import (
     create_spectrogram,
     plot_spectrogram,
     save_vector_wv,
+    normalize_signal,
+    check_vector_power_uniformity,
+    equalize_vector_power,
 )
 
 
@@ -168,5 +172,28 @@ def test_save_vector_wv(tmp_path):
     with open(out_file, "rb") as f:
         header = f.read(20)
     assert b"TYPE: SMU-WV" in header
+
+
+def test_normalize_signal_peak():
+    data = np.array([0.5, 2.0, -1.0], dtype=np.float32)
+    norm = normalize_signal(data)
+    assert np.isclose(np.max(np.abs(norm)), 1.0)
+    assert norm.dtype == np.float32
+
+
+def test_check_vector_power_uniformity():
+    vec = np.concatenate([np.ones(1000), 0.1 * np.ones(1000)]).astype(np.float32)
+    with pytest.raises(ValueError):
+        check_vector_power_uniformity(vec, window_size=100, max_db_delta=3)
+
+    vec = np.ones(2000, dtype=np.complex64)
+    check_vector_power_uniformity(vec, window_size=100, max_db_delta=3)
+
+
+def test_equalize_vector_power():
+    vec = np.concatenate([np.ones(1000), 0.1 * np.ones(1000)]).astype(np.float32)
+    fixed = equalize_vector_power(vec, window_size=100, max_db_delta=1)
+    check_vector_power_uniformity(fixed, window_size=100, max_db_delta=1)
+    assert np.isclose(np.max(np.abs(fixed)), 1.0)
 
 

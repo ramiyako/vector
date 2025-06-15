@@ -114,6 +114,91 @@ def compute_freq_ranges(shifts, margin=1e6):
             ranges.append((start, end))
     return ranges
 
+
+def normalize_signal(sig, target_peak=1.0):
+    """Scale a signal so its peak amplitude equals ``target_peak``."""
+    max_abs = np.max(np.abs(sig))
+    if max_abs == 0:
+        dtype = np.complex64 if np.iscomplexobj(sig) else np.float32
+        return sig.astype(dtype)
+    scaled = sig / max_abs * target_peak
+    dtype = np.complex64 if np.iscomplexobj(scaled) else np.float32
+    return scaled.astype(dtype)
+
+
+def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
+    """Validate uniform power across ``vector`` using block RMS measurement.
+
+    The vector is divided into non-overlapping blocks of ``window_size`` and the
+    RMS power of each block is computed. If the difference between the maximum
+    and minimum block power exceeds ``max_db_delta`` in dB, a ``ValueError`` is
+    raised.
+    """
+
+    if window_size <= 0:
+        return
+    if window_size > len(vector):
+        window_size = len(vector)
+
+    n_blocks = len(vector) // window_size
+    if n_blocks < 2:
+        return
+
+    trimmed = vector[: n_blocks * window_size]
+    blocks = trimmed.reshape(n_blocks, window_size)
+    rms = np.sqrt(np.mean(np.abs(blocks) ** 2, axis=1))
+
+    rms = rms[rms > 1e-12]
+    if len(rms) == 0:
+        return
+    db = 20 * np.log10(rms)
+    if db.max() - db.min() > max_db_delta:
+        raise ValueError(
+            f"Vector power variation {db.max() - db.min():.2f} dB exceeds {max_db_delta} dB"
+        )
+
+
+def equalize_vector_power(vector, window_size=1024, max_db_delta=3):
+    """Return a vector with uniform power across windows.
+
+    The signal is divided into non-overlapping blocks. Each block is scaled so
+    that its RMS level equals the median RMS across all blocks. A final
+    ``check_vector_power_uniformity`` call verifies the result.
+    """
+
+    if window_size <= 0 or len(vector) < window_size:
+        corrected = normalize_signal(vector)
+        check_vector_power_uniformity(corrected, window_size=max(1, len(corrected)), max_db_delta=max_db_delta)
+        return corrected
+
+    n_blocks = len(vector) // window_size
+    trimmed = vector[: n_blocks * window_size]
+    blocks = trimmed.reshape(n_blocks, window_size)
+    rms = np.sqrt(np.mean(np.abs(blocks) ** 2, axis=1))
+
+    valid = rms > 1e-12
+    if not np.any(valid):
+        return vector.astype(np.complex64 if np.iscomplexobj(vector) else np.float32)
+
+    target_rms = np.median(rms[valid])
+    gains = target_rms / np.maximum(rms, 1e-12)
+
+    corrected = vector.astype(np.float64)  # temporary for precision
+    for i, g in enumerate(gains):
+        start = i * window_size
+        end = start + window_size
+        corrected[start:end] *= g
+    # handle remaining samples using last gain
+    if n_blocks * window_size < len(vector):
+        corrected[n_blocks * window_size :] *= gains[-1]
+
+    corrected = corrected.astype(vector.dtype)
+    corrected = normalize_signal(corrected)
+
+    check_vector_power_uniformity(corrected, window_size=window_size, max_db_delta=max_db_delta)
+    dtype = np.complex64 if np.iscomplexobj(corrected) else np.float32
+    return corrected.astype(dtype)
+
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """יוצר ספקטוגרמה מהאות.
 
