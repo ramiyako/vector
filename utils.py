@@ -128,14 +128,20 @@ def normalize_signal(sig, target_peak=1.0):
 
 def check_vector_power_uniformity(vector, window_size=1024, max_db_delta=3):
     """Validate uniform power across ``vector`` using a sliding RMS window."""
-    if window_size <= 0 or window_size > len(vector):
-        window_size = len(vector)
+    if window_size <= 0:
+        raise ValueError("window_size must be positive")
+    window_size = min(window_size, len(vector))
+
+    # Compute running RMS efficiently using cumulative sums
     power = np.abs(vector) ** 2
-    kernel = np.ones(window_size) / window_size
-    rms = np.sqrt(np.convolve(power, kernel, mode="valid"))
+    cumsum = np.cumsum(np.insert(power, 0, 0.0))
+    window_sum = cumsum[window_size:] - cumsum[:-window_size]
+    rms = np.sqrt(window_sum / window_size)
+
     rms = rms[rms > 1e-12]
     if len(rms) == 0:
         return
+
     db = 20 * np.log10(rms)
     if db.max() - db.min() > max_db_delta:
         raise ValueError(
