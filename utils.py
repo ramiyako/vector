@@ -143,17 +143,18 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         print(f"Downsampled signal from {len(sig)*step} to {len(sig)} samples for performance")
     
     # Optimized STFT parameters
-    # Use the full signal length when it is short to get better frequency
-    # resolution for small test signals. Otherwise cap at 1024 samples for
-    # performance on large inputs.
-    nperseg = min(1024, len(sig))
+    # Use a larger window for improved frequency resolution while still limiting
+    # runtime on long inputs. For short signals use the full length.
+    nperseg = min(4096, len(sig))
     noverlap = nperseg // 2
+    nfft = max(4096, 2 ** int(np.ceil(np.log2(nperseg))))
     
     f, t, Sxx = scipy.signal.spectrogram(
         sig, 
         fs=sr, 
-        nperseg=nperseg, 
+        nperseg=nperseg,
         noverlap=noverlap,
+        nfft=nfft,
         return_onesided=False,
         scaling='density'
     )

@@ -20,7 +20,7 @@ class PacketExtractor:
         
     def create_widgets(self):
         # כפתור לבחירת קובץ
-        self.file_button = ttk.Button(self.root, text="בחר קובץ MAT", command=self.load_file)
+        self.file_button = ttk.Button(self.root, text="\u200fבחר קובץ MAT", command=self.load_file)
         self.file_button.pack(pady=10)
         
         # שדות קלט

@@ -63,11 +63,12 @@ class ModernPacketExtractor:
         file_frame.pack(fill="x", padx=20, pady=10)
         
         self.load_button = ctk.CTkButton(
-            file_frame, 
-            text="בחר קובץ MAT", 
+            file_frame,
+            text="\u200fבחר קובץ MAT",
             command=self.load_file,
             height=40,
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="e",
         )
         self.load_button.pack(pady=10)
         
@@ -93,12 +94,13 @@ class ModernPacketExtractor:
         
         # Plot button
         self.plot_button = ctk.CTkButton(
-            main_frame, 
-            text="פתח ספקטוגרמה וחתוך פקטה", 
+            main_frame,
+            text="\u200fפתח ספקטוגרמה וחתוך פקטה",
             command=self.show_spectrogram,
             state="disabled",
             height=40,
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="e",
         )
         self.plot_button.pack(pady=10)
         
@@ -126,7 +128,7 @@ class ModernPacketExtractor:
         """Load MAT file with performance optimization"""
         try:
             file_path = filedialog.askopenfilename(
-                title="בחר קובץ MAT",
+                title="\u200fבחר קובץ MAT",
                 filetypes=[("MAT files", "*.mat"), ("All files", "*.*")]
             )
             if not file_path:
@@ -313,17 +315,19 @@ class ModernPacketConfig:
         buttons_frame.pack(fill="x", padx=10, pady=5)
         
         ctk.CTkButton(
-            buttons_frame, 
-            text="הצג ספקטוגרמה", 
-            command=self.show_spectrogram, 
-            width=120
+            buttons_frame,
+            text="\u200fהצג ספקטוגרמה",
+            command=self.show_spectrogram,
+            width=120,
+            anchor="e",
         ).pack(side="right", padx=5)
         
         ctk.CTkButton(
-            buttons_frame, 
-            text="ניתוח פקטה", 
-            command=self.analyze_packet, 
-            width=120
+            buttons_frame,
+            text="\u200fניתוח פקטה",
+            command=self.analyze_packet,
+            width=120,
+            anchor="e",
         ).pack(side="right", padx=5)
         
     def get_config(self):
@@ -434,11 +438,12 @@ class UnifiedVectorApp:
         
         # Refresh packets button
         refresh_button = ctk.CTkButton(
-            self.root, 
-            text="רענן רשימת פקטות", 
+            self.root,
+            text="\u200fרענן רשימת פקטות",
             command=self.refresh_packets,
             height=30,
-            font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=12),
+            anchor="e",
         )
         refresh_button.pack(pady=5)
         
@@ -513,18 +518,20 @@ class UnifiedVectorApp:
         
         ctk.CTkButton(
             buttons_frame,
-            text="צור וקטור MAT",
+            text="\u200fצור וקטור MAT",
             command=self.generate_mat_vector,
             height=40,
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="e",
         ).pack(side="right", padx=10, pady=5)
         
         ctk.CTkButton(
             buttons_frame,
-            text="צור וקטור WV",
+            text="\u200fצור וקטור WV",
             command=self.generate_wv_vector,
             height=40,
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="e",
         ).pack(side="right", padx=10, pady=5)
         
         # Create initial packet configurations (now that everything is ready)
