@@ -405,15 +405,15 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     ax1.set_xlabel('Time [ms]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
-    # קביעת שנתות כל 0.1ms
+    # Set ticks every 0.5ms
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
+    ax1.set_xticks(np.arange(np.floor(min_t*2)/2, np.ceil(max_t*2)/2 + 0.5, 0.5))
 
     ax2.plot(sample_times_ms, np.abs(signal))
     ax2.set_xlabel('Time [ms]')
     ax2.set_ylabel('Amplitude')
     ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*2)/2, np.ceil(sample_times_ms[-1]*2)/2 + 0.5, 0.5))
 
     # קו מקווקו ומדבקה
     packet_time_ms = packet_start / sample_rate * 1000
@@ -490,13 +490,13 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
+    ax1.set_xticks(np.arange(np.floor(min_t*2)/2, np.ceil(max_t*2)/2 + 0.5, 0.5))
 
     ax2.plot(sample_times_ms, np.abs(signal))
     ax2.set_xlabel('Time [ms]')
     ax2.set_ylabel('Amplitude')
     ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*2)/2, np.ceil(sample_times_ms[-1]*2)/2 + 0.5, 0.5))
 
     start_time_ms = start_sample / sample_rate * 1000
     end_time_ms = end_sample / sample_rate * 1000
