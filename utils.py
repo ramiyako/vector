@@ -133,6 +133,9 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         t: Time array  
         Sxx: Spectrogram matrix
     """
+    if len(sig) == 0:
+        raise ValueError("Signal is empty")
+
     # Limit signal length for performance
     if len(sig) > max_samples:
         step = len(sig) // max_samples
@@ -140,7 +143,10 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         print(f"Downsampled signal from {len(sig)*step} to {len(sig)} samples for performance")
     
     # Optimized STFT parameters
-    nperseg = min(1024, len(sig) // 4)
+    # Use the full signal length when it is short to get better frequency
+    # resolution for small test signals. Otherwise cap at 1024 samples for
+    # performance on large inputs.
+    nperseg = min(1024, len(sig))
     noverlap = nperseg // 2
     
     f, t, Sxx = scipy.signal.spectrogram(
@@ -244,15 +250,8 @@ def plot_spectrogram(
             else:
                 ax1.set_xticklabels([])
             ax2 = None
-        im = ax1.pcolormesh(
-            t,
-            freq_axis,
-            Sxx_db,
-            shading='nearest',
-            cmap='viridis',
-            norm=Normalize(vmin=vmin, vmax=vmax),
-        )
-        ax1.set_ylim(freq_axis.min(), freq_axis.max())
+        # After plotting the subranges no additional full-range plot is
+        # required. Keep the last axes as the active one for colorbar usage.
 
     ax1.set_title(title)
     ax1.set_xlabel('Time [ms]')
@@ -288,7 +287,9 @@ def plot_spectrogram(
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
     if show_colorbar:
         if freq_ranges:
-            plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
+            # When multiple frequency ranges are plotted, the figure contains
+            # several axes. Attach a single colorbar covering all of them.
+            plt.colorbar(im, ax=fig.axes, label='Power [dB]')
         else:
             plt.colorbar(im, ax=ax1, label='Power [dB]')
 
