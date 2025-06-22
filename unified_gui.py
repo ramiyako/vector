@@ -52,81 +52,96 @@ class ModernPacketExtractor:
         # Title
         title_label = ctk.CTkLabel(
             main_frame, 
-            text="חילוץ פקטות", 
+            text="Packet Extraction", 
             font=ctk.CTkFont(size=24, weight="bold"),
             anchor="e"
         )
         title_label.pack(pady=10, fill="x")
         
-        # File selection
-        file_frame = ctk.CTkFrame(main_frame)
-        file_frame.pack(fill="x", padx=20, pady=10)
+        # Packet extraction section
+        extraction_frame = ctk.CTkFrame(main_frame)
+        extraction_frame.pack(fill="x", padx=20, pady=10)
         
-        self.load_button = ctk.CTkButton(
-            file_frame, 
-            text="בחר קובץ MAT", 
+        # Section title
+        section_title = ctk.CTkLabel(
+            extraction_frame,
+            text="Packet Extraction",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        section_title.pack(pady=(10, 5))
+        
+        # File selection
+        file_frame = ctk.CTkFrame(extraction_frame)
+        file_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.file_button = ctk.CTkButton(
+            file_frame,
+            text="Select MAT File",
             command=self.load_file,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.load_button.pack(pady=10)
+        self.file_button.pack(side="left", padx=10, pady=10)
+        
+        self.file_label = ctk.CTkLabel(file_frame, text="No file selected")
+        self.file_label.pack(side="left", padx=10)
         
         # File info
-        info_frame = ctk.CTkFrame(main_frame)
-        info_frame.pack(fill="x", padx=20, pady=10)
+        info_frame = ctk.CTkFrame(extraction_frame)
+        info_frame.pack(fill="x", padx=10, pady=5)
         
-        self.sample_rate_label = ctk.CTkLabel(
-            info_frame, 
-            text="קצב דגימה: --", 
-            font=ctk.CTkFont(size=12),
-            anchor="e"
-        )
-        self.sample_rate_label.pack(anchor="e", padx=10, pady=2)
+        self.sample_rate_label = ctk.CTkLabel(info_frame, text="Sample Rate: --")
+        self.sample_rate_label.pack(side="left", padx=10, pady=5)
         
-        self.signal_length_label = ctk.CTkLabel(
-            info_frame, 
-            text="אורך האות: --", 
-            font=ctk.CTkFont(size=12),
-            anchor="e"
-        )
-        self.signal_length_label.pack(anchor="e", padx=10, pady=2)
+        self.signal_length_label = ctk.CTkLabel(info_frame, text="Signal Length: --")
+        self.signal_length_label.pack(side="left", padx=10, pady=5)
         
-        # Plot button
-        self.plot_button = ctk.CTkButton(
-            main_frame, 
-            text="פתח ספקטוגרמה וחתוך פקטה", 
+        # Action buttons
+        button_frame = ctk.CTkFrame(extraction_frame)
+        button_frame.pack(fill="x", padx=10, pady=10)
+        
+        self.extract_button = ctk.CTkButton(
+            button_frame,
+            text="Open Spectrogram and Cut Packet",
             command=self.show_spectrogram,
             state="disabled",
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.plot_button.pack(pady=10)
+        self.extract_button.pack(side="left", padx=10, pady=5)
         
         # Extracted packets list
         packets_frame = ctk.CTkFrame(main_frame)
-        packets_frame.pack(fill="x", padx=20, pady=10)
+        packets_frame.pack(fill="both", expand=True, padx=20, pady=10)
         
-        packets_label = ctk.CTkLabel(
-            packets_frame, 
-            text="פקטות שחולצו:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            anchor="e"
+        # Section title
+        packets_title = ctk.CTkLabel(
+            packets_frame,
+            text="Extracted Packets:",
+            font=ctk.CTkFont(size=16, weight="bold")
         )
-        packets_label.pack(anchor="e", padx=10, pady=5)
+        packets_title.pack(pady=(10, 5))
         
-        # Listbox with Hebrew font support
-        self.packets_listbox = tk.Listbox(
-            packets_frame, 
-            height=6,
-            font=('Tahoma', 10)
-        )
-        self.packets_listbox.pack(fill="x", padx=10, pady=5)
+        # Create scrollable frame for packets list
+        self.packets_scroll = ctk.CTkScrollableFrame(packets_frame, height=150)
+        self.packets_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Headers
+        headers_frame = ctk.CTkFrame(self.packets_scroll)
+        headers_frame.pack(fill="x", pady=5)
+        
+        ctk.CTkLabel(headers_frame, text="Packet Name", width=200, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(headers_frame, text="Samples", width=100, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(headers_frame, text="Duration (ms)", width=120, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        
+        # Initialize packets list
+        self.packet_rows = []
         
     def load_file(self):
         """Load MAT file with performance optimization"""
         try:
             file_path = filedialog.askopenfilename(
-                title="בחר קובץ MAT",
+                title="Select MAT File",
                 filetypes=[("MAT files", "*.mat"), ("All files", "*.*")]
             )
             if not file_path:
@@ -136,8 +151,8 @@ class ModernPacketExtractor:
             file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
             if file_size > 100:  # If file is larger than 100MB
                 result = messagebox.askyesno(
-                    "קובץ גדול", 
-                    f"הקובץ גדול ({file_size:.1f} MB). הטעינה עלולה לקחת זמן. להמשיך?"
+                    "Large File", 
+                    f"The file is large ({file_size:.1f} MB). Loading may take time. Continue?"
                 )
                 if not result:
                     return
@@ -177,26 +192,26 @@ class ModernPacketExtractor:
             
             # Update info
             self.sample_rate_label.configure(
-                text=f"קצב דגימה: {self.sample_rate/1e6:.1f} MHz"
+                text=f"Sample Rate: {self.sample_rate/1e6:.1f} MHz"
             )
             self.signal_length_label.configure(
-                text=f"אורך האות: {len(self.signal):,} דגימות"
+                text=f"Signal Length: {len(self.signal):,} samples"
             )
-            self.plot_button.configure(state="normal")
+            self.extract_button.configure(state="normal")
             
             messagebox.showinfo(
-                "הצלחה", 
-                f"הקובץ נטען בהצלחה!\nאורך: {len(self.signal):,} דגימות\nקצב דגימה: {self.sample_rate/1e6:.1f} MHz\nזמן טעינה: {load_time:.2f} שניות"
+                "Success", 
+                f"File loaded successfully!\nLength: {len(self.signal):,} samples\nSample Rate: {self.sample_rate/1e6:.1f} MHz\nLoading Time: {load_time:.2f} seconds"
             )
             
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שגיאה בטעינת הקובץ: {e}")
+            messagebox.showerror("Error", f"Error loading file: {e}")
             print(f"Error loading file: {traceback.format_exc()}")
                 
     def show_spectrogram(self):
         """Show spectrogram and extract packet"""
         if self.signal is None:
-            messagebox.showerror("שגיאה", "יש לבחור קובץ תחילה")
+            messagebox.showerror("Error", "Please select a file first")
             return
             
         try:
@@ -210,14 +225,14 @@ class ModernPacketExtractor:
             
             # Validate bounds
             if self.start_sample >= self.end_sample:
-                messagebox.showerror("שגיאה", "גבולות הפקטה לא תקינים")
+                messagebox.showerror("Error", "Invalid packet bounds")
                 return
                 
             # Extract packet
             packet = self.signal[self.start_sample:self.end_sample]
             
             if len(packet) == 0:
-                messagebox.showerror("שגיאה", "הפקטה ריקה")
+                messagebox.showerror("Error", "Empty packet")
                 return
             
             # Save packet
@@ -240,18 +255,24 @@ class ModernPacketExtractor:
             
             # Add to list
             self.extracted_packets.append(packet_info)
-            self.packets_listbox.insert(
-                tk.END, 
-                f"{packet_name} ({len(packet):,} דגימות)"
-            )
+            
+            # Add visual row to the packets list
+            packet_row = ctk.CTkFrame(self.packets_scroll)
+            packet_row.pack(fill="x", pady=2)
+            
+            ctk.CTkLabel(packet_row, text=packet_name, width=200).pack(side="left", padx=5)
+            ctk.CTkLabel(packet_row, text=f"{len(packet):,}", width=100).pack(side="left", padx=5)
+            ctk.CTkLabel(packet_row, text=f"{len(packet) / sample_rate * 1000:.1f}", width=120).pack(side="left", padx=5)
+            
+            self.packet_rows.append(packet_row)
             
             messagebox.showinfo(
-                "הצלחה", 
-                f"הפקטה נחלצה ונשמרה בהצלחה!\nשם: {packet_name}\nאורך: {len(packet):,} דגימות"
+                "Success", 
+                f"Packet extracted and saved successfully!\nName: {packet_name}\nLength: {len(packet):,} samples"
             )
             
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שגיאה בחילוץ הפקטה: {e}")
+            messagebox.showerror("Error", f"Error extracting packet: {e}")
             print(f"Error extracting packet: {traceback.format_exc()}")
 
 class ModernPacketConfig:
@@ -264,20 +285,20 @@ class ModernPacketConfig:
         # Title
         title_label = ctk.CTkLabel(
             self.frame, 
-            text=f"פקטה {idx+1}", 
+            text=f"Packet {idx+1}", 
             font=ctk.CTkFont(size=16, weight="bold"),
             anchor="e"
         )
         title_label.pack(pady=5, fill="x")
         
         # Packet selection
-        packet_label = ctk.CTkLabel(self.frame, text="בחר פקטה:", anchor="e")
+        packet_label = ctk.CTkLabel(self.frame, text="Select Packet:", anchor="e")
         packet_label.pack(anchor="e", padx=10)
         
         self.packet_var = tk.StringVar()
         self.packet_menu = ctk.CTkOptionMenu(
             self.frame, 
-            values=packet_choices if packet_choices else ["אין פקטות זמינות"], 
+            values=packet_choices if packet_choices else ["No packets available"], 
             variable=self.packet_var
         )
         self.packet_menu.pack(fill="x", padx=10, pady=5)
@@ -292,11 +313,11 @@ class ModernPacketConfig:
         row1 = ctk.CTkFrame(params_frame)
         row1.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(row1, text="הזזת תדר (MHz):", width=120, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(row1, text="Freq Shift (MHz):", width=120, anchor="e").pack(side="right", padx=5)
         self.freq_shift_var = tk.StringVar(value="0")
         ctk.CTkEntry(row1, textvariable=self.freq_shift_var, width=100).pack(side="right", padx=5)
         
-        ctk.CTkLabel(row1, text="מחזור (ms):", width=80, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(row1, text="Period (ms):", width=80, anchor="e").pack(side="right", padx=5)
         self.period_var = tk.StringVar(value="100")
         ctk.CTkEntry(row1, textvariable=self.period_var, width=80).pack(side="right", padx=5)
         
@@ -304,7 +325,7 @@ class ModernPacketConfig:
         row2 = ctk.CTkFrame(params_frame)
         row2.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(row2, text="היסט זמן התחלה (ms):", width=140, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(row2, text="Start Time Offset (ms):", width=140, anchor="e").pack(side="right", padx=5)
         self.start_time_var = tk.StringVar(value="0")
         ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="right", padx=5)
         
@@ -314,14 +335,14 @@ class ModernPacketConfig:
         
         ctk.CTkButton(
             buttons_frame, 
-            text="הצג ספקטוגרמה", 
+            text="Show Spectrogram", 
             command=self.show_spectrogram, 
             width=120
         ).pack(side="right", padx=5)
         
         ctk.CTkButton(
             buttons_frame, 
-            text="ניתוח פקטה", 
+            text="Analyze Packet", 
             command=self.analyze_packet, 
             width=120
         ).pack(side="right", padx=5)
@@ -330,7 +351,7 @@ class ModernPacketConfig:
         """Get packet configuration"""
         try:
             packet_path = self.packet_var.get()
-            if not packet_path or packet_path == "אין פקטות זמינות":
+            if not packet_path or packet_path == "No packets available":
                 return None
                 
             return {
@@ -340,7 +361,7 @@ class ModernPacketConfig:
                 'start_time': float(self.start_time_var.get()) / 1000.0  # Convert ms to seconds
             }
         except ValueError as e:
-            messagebox.showerror("שגיאה", f"ערכי פרמטרים לא תקינים: {e}")
+            messagebox.showerror("Error", f"Invalid parameter values: {e}")
             return None
             
     def show_spectrogram(self):
@@ -355,7 +376,7 @@ class ModernPacketConfig:
             plot_spectrogram(f, t, Sxx, title=f"Spectrogram - {os.path.basename(config['file'])}")
             
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שגיאה בהצגת ספקטוגרמה: {e}")
+            messagebox.showerror("Error", f"Error showing spectrogram: {e}")
             print(f"Error showing spectrogram: {e}")
             
     def analyze_packet(self):
@@ -370,20 +391,20 @@ class ModernPacketConfig:
             energy = np.sum(np.abs(packet)**2)
             peak_amplitude = np.max(np.abs(packet))
             
-            info = f"""פרטי הפקטה:
-קובץ: {os.path.basename(config['file'])}
-אורך: {len(packet):,} דגימות
-משך: {duration_ms:.2f} מילישניות
-אנרגיה: {energy:.2e}
-משרעת שיא: {peak_amplitude:.2f}
-הזזת תדר: {config['freq_shift']/1e6:.1f} MHz
-מחזור: {config['period']*1000:.1f} ms
-היסט זמן: {config['start_time']*1000:.1f} ms"""
+            info = f"""Packet Details:
+File: {os.path.basename(config['file'])}
+Length: {len(packet):,} samples
+Duration: {duration_ms:.2f} milliseconds
+Energy: {energy:.2e}
+Peak Amplitude: {peak_amplitude:.2f}
+Freq Shift: {config['freq_shift']/1e6:.1f} MHz
+Period: {config['period']*1000:.1f} ms
+Start Time Offset: {config['start_time']*1000:.1f} ms"""
             
-            messagebox.showinfo("ניתוח פקטה", info)
+            messagebox.showinfo("Packet Analysis", info)
             
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שגיאה בניתוח הפקטה: {e}")
+            messagebox.showerror("Error", f"Error analyzing packet: {e}")
             print(f"Error analyzing packet: {e}")
 
 class UnifiedVectorApp:
@@ -412,7 +433,7 @@ class UnifiedVectorApp:
     def create_gui(self):
         """Create the main GUI"""
         self.root = ctk.CTk()
-        self.root.title("Unified Vector Generator - מחולל וקטורים מאוחד")
+        self.root.title("Unified Vector Generator - Unified Vector Generator")
         self.root.geometry("1400x900")
         
         # Initialize tkinter variables after root window is created
@@ -425,17 +446,17 @@ class UnifiedVectorApp:
         self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Packet extraction tab
-        self.extraction_tab = self.notebook.add("חילוץ פקטות")
+        self.extraction_tab = self.notebook.add("Packet Extraction")
         self.packet_extractor = ModernPacketExtractor(self.extraction_tab)
         
         # Vector building tab
-        self.vector_tab = self.notebook.add("בניית וקטור")
+        self.vector_tab = self.notebook.add("Vector Building")
         self.create_vector_tab()
         
         # Refresh packets button
         refresh_button = ctk.CTkButton(
             self.root, 
-            text="רענן רשימת פקטות", 
+            text="Refresh Packet List", 
             command=self.refresh_packets,
             height=30,
             font=ctk.CTkFont(size=12)
@@ -451,7 +472,7 @@ class UnifiedVectorApp:
         # Title
         title_label = ctk.CTkLabel(
             main_frame, 
-            text="בניית וקטור", 
+            text="Vector Building", 
             font=ctk.CTkFont(size=24, weight="bold"),
             anchor="e"
         )
@@ -463,7 +484,7 @@ class UnifiedVectorApp:
         
         general_label = ctk.CTkLabel(
             general_frame, 
-            text="פרמטרים כלליים", 
+            text="General Parameters", 
             font=ctk.CTkFont(size=16, weight="bold"),
             anchor="e"
         )
@@ -473,14 +494,14 @@ class UnifiedVectorApp:
         length_frame = ctk.CTkFrame(general_frame)
         length_frame.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkLabel(length_frame, text="אורך וקטור (מילישניות):", width=150, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(length_frame, text="Vector Length (milliseconds):", width=150, anchor="e").pack(side="right", padx=5)
         ctk.CTkEntry(length_frame, textvariable=self.vector_length_var, width=100).pack(side="right", padx=5)
         
         # Number of packets
         packets_frame = ctk.CTkFrame(general_frame)
         packets_frame.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkLabel(packets_frame, text="מספר פקטות (1-6):", width=150, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(packets_frame, text="Number of Packets (1-6):", width=150, anchor="e").pack(side="right", padx=5)
         ctk.CTkSlider(
             packets_frame, 
             from_=1, 
@@ -499,7 +520,7 @@ class UnifiedVectorApp:
         
         ctk.CTkCheckBox(
             normalize_frame, 
-            text="נרמול וקטור סופי", 
+            text="Normalize Final Vector", 
             variable=self.normalize
         ).pack(side="right", padx=5)
         
@@ -513,7 +534,7 @@ class UnifiedVectorApp:
         
         ctk.CTkButton(
             buttons_frame,
-            text="צור וקטור MAT",
+            text="Create MAT Vector",
             command=self.generate_mat_vector,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
@@ -521,7 +542,7 @@ class UnifiedVectorApp:
         
         ctk.CTkButton(
             buttons_frame,
-            text="צור וקטור WV",
+            text="Create WV Vector",
             command=self.generate_wv_vector,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
@@ -555,12 +576,12 @@ class UnifiedVectorApp:
         
         # Update all menus
         for pc in self.packet_configs:
-            current_values = self.packet_files if self.packet_files else ["אין פקטות זמינות"]
+            current_values = self.packet_files if self.packet_files else ["No packets available"]
             pc.packet_menu.configure(values=current_values)
             if self.packet_files and not pc.packet_var.get():
                 pc.packet_var.set(self.packet_files[0])
                 
-        messagebox.showinfo("רענון", f"רשימת הפקטות עודכנה! נמצאו {len(self.packet_files)} פקטות.")
+        messagebox.showinfo("Refresh", f"Packet list updated! Found {len(self.packet_files)} packets.")
         
     def generate_mat_vector(self):
         """Generate MAT vector"""
@@ -575,19 +596,19 @@ class UnifiedVectorApp:
         try:
             # Validate inputs
             if not self.packet_configs:
-                messagebox.showerror("שגיאה", "אין פקטות מוגדרות")
+                messagebox.showerror("Error", "No packets configured")
                 return
                 
             vector_length_ms = float(self.vector_length_var.get())
             if vector_length_ms <= 0:
-                messagebox.showerror("שגיאה", "אורך הווקטור חייב להיות חיובי")
+                messagebox.showerror("Error", "Vector length must be positive")
                 return
                 
             # Convert from milliseconds to seconds
             vector_length = vector_length_ms / 1000.0
             
             # Show processing message
-            progress_msg = messagebox.showinfo("מעבד...", "יוצר וקטור, אנא המתן...")
+            progress_msg = messagebox.showinfo("Processing...", "Creating vector, please wait...")
             
             total_samples = int(vector_length * TARGET_SAMPLE_RATE)
             vector = np.zeros(total_samples, dtype=np.complex64)
@@ -628,7 +649,7 @@ class UnifiedVectorApp:
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
                 if period_samples <= 0:
-                    messagebox.showerror("שגיאה", f"מחזור לא תקין בפקטה {idx+1}")
+                    messagebox.showerror("Error", f"Invalid period for packet {idx+1}")
                     return
 
                 # Time offset of first insertion in samples relative to start of vector
@@ -652,7 +673,7 @@ class UnifiedVectorApp:
                 print(f"  Inserted {instance_count} instances with period {cfg['period']*1000:.1f} ms")
             
             if valid_configs == 0:
-                messagebox.showerror("שגיאה", "אין פקטות תקינות להכללה בוקטור")
+                messagebox.showerror("Error", "No valid packets to include in vector")
                 return
             
             # Normalization
@@ -688,15 +709,15 @@ class UnifiedVectorApp:
                 print(f"Warning: Could not display final spectrogram: {e}")
             
             messagebox.showinfo(
-                "הצלחה", 
-                f"הווקטור נוצר ונשמר בהצלחה!\nפורמט: {output_format.upper()}\nאורך: {vector_length_ms} מילישניות\nמספר דגימות: {len(vector):,}\nפקטות תקינות: {valid_configs}"
+                "Success", 
+                f"Vector created and saved successfully!\nFormat: {output_format.upper()}\nLength: {vector_length_ms} milliseconds\nSamples: {len(vector):,}\nValid packets: {valid_configs}"
             )
             
         except ValueError as e:
-            messagebox.showerror("שגיאה", f"ערך לא תקין: {e}")
+            messagebox.showerror("Error", f"Invalid value: {e}")
             print(f"Value error: {e}")
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שגיאה ביצירת הווקטור: {e}")
+            messagebox.showerror("Error", f"Error creating vector: {e}")
             print(f"Error creating vector: {traceback.format_exc()}")
         
     def run(self):

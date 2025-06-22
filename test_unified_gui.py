@@ -201,7 +201,7 @@ class TestFullWorkflow(TestUnifiedGUI):
         
         # Step 1: Create original signal with multiple frequencies and noise
         fs = 56e6  # Sample rate
-        duration = 0.0001  # 100 μs (shorter for faster test)
+        duration = 0.0001  # 100 us (shorter for faster test)
         t = np.linspace(0, duration, int(fs * duration), endpoint=False)
         
         # Create signal with 3 frequency components + noise
@@ -238,16 +238,16 @@ class TestFullWorkflow(TestUnifiedGUI):
         self.assertGreaterEqual(len(packets), 2, "Should have extracted at least 2 packets")
         
         # Step 3: Create complex vector with different parameters
-        vector_length_ms = 0.2  # 200 μs (shorter for test)
+        vector_length_ms = 0.2  # 200 us (shorter for test)
         vector_length = vector_length_ms / 1000.0  # Convert to seconds
         total_samples = int(vector_length * fs)
         vector = np.zeros(total_samples, dtype=np.complex64)
         
         # Packet configurations with different shifts, periods, and start times
         configs = [
-            {'freq_shift': 2e6, 'period_ms': 50, 'start_time_ms': 0},    # Every 50 μs, start immediately
-            {'freq_shift': -3e6, 'period_ms': 75, 'start_time_ms': 10},  # Every 75 μs, start at 10 μs
-            {'freq_shift': 1e6, 'period_ms': 60, 'start_time_ms': 25}   # Every 60 μs, start at 25 μs
+            {'freq_shift': 2e6, 'period_ms': 50, 'start_time_ms': 0},    # Every 50 us, start immediately
+            {'freq_shift': -3e6, 'period_ms': 75, 'start_time_ms': 10},  # Every 75 us, start at 10 us
+            {'freq_shift': 1e6, 'period_ms': 60, 'start_time_ms': 25}   # Every 60 us, start at 25 us
         ]
         
         instances_count = 0
@@ -275,7 +275,7 @@ class TestFullWorkflow(TestUnifiedGUI):
                 instances_count += 1
                 current_pos += period_samples
             
-            print(f"Packet {i+1}: {packet_instances} instances, period {config['period_ms']} μs")
+            print(f"Packet {i+1}: {packet_instances} instances, period {config['period_ms']} us")
         
         self.assertGreater(instances_count, 0, "Should have inserted at least one packet instance")
         
@@ -486,7 +486,7 @@ def run_all_tests():
         success = result.wasSuccessful()
         all_results.append((category_name, success, category_time, len(result.failures), len(result.errors)))
         
-        status = "✓ PASSED" if success else "✗ FAILED"
+        status = "[PASS]" if success else "[FAIL]"
         print(f"[{category_name}] {status} ({category_time:.3f}s)")
         
         if not success:
@@ -504,7 +504,7 @@ def run_all_tests():
     print("="*60)
     
     for category, success, time_taken, failures, errors in all_results:
-        status = "✓" if success else "✗"
+        status = "[PASS]" if success else "[FAIL]"
         print(f"{status} {category:20} ({time_taken:.3f}s)")
         if not success:
             print(f"    Failures: {failures}, Errors: {errors}")
@@ -517,7 +517,7 @@ def run_all_tests():
         print("🎉 ALL TESTS PASSED!")
         return True
     else:
-        print("❌ SOME TESTS FAILED")
+        print("[FAIL] SOME TESTS FAILED")
         return False
 
 if __name__ == "__main__":

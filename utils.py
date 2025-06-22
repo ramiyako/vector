@@ -9,6 +9,12 @@ import scipy.io as sio
 import scipy.signal
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
+import warnings
+from matplotlib.colors import Normalize
+try:
+    from brokenaxes import brokenaxes
+except ImportError:  # pragma: no cover - optional dependency
+    brokenaxes = None
 
 def get_sample_rate_from_mat(file_path):
     """Extract sample rate from MAT file metadata"""
@@ -119,43 +125,38 @@ def compute_freq_ranges(shifts, margin=1e6):
     return [(freq_min, freq_max)]
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
+    """Creates spectrogram from signal.
+
+    If the signal is very long, fast downsampling is performed to speed up computation.
     """
-    Create spectrogram with optimized parameters for performance
-    
-    Args:
-        sig: Complex signal
-        sr: Sample rate in Hz
-        center_freq: Center frequency for display (Hz)
-        max_samples: Maximum samples to process for performance
-    
-    Returns:
-        f: Frequency array
-        t: Time array  
-        Sxx: Spectrogram matrix
-    """
-    # Limit signal length for performance
+
     if len(sig) > max_samples:
-        step = len(sig) // max_samples
-        sig = sig[::step]
-        print(f"Downsampled signal from {len(sig)*step} to {len(sig)} samples for performance")
+        factor = int(np.ceil(len(sig) / max_samples))
+        sig = sig[::factor]
+        fs = sr / factor
+    else:
+        factor = 1
+        fs = sr
+
+    # Improved spectrogram parameters for better resolution
+    window_size = min(2048, len(sig) // 8)  # Larger window for better frequency resolution
+    overlap = int(window_size * 0.75)  # Greater overlap for better time resolution
+    nfft = max(window_size, 2048)  # Larger FFT
     
-    # Optimized STFT parameters
-    nperseg = min(1024, len(sig) // 4)
-    noverlap = nperseg // 2
-    
-    f, t, Sxx = scipy.signal.spectrogram(
-        sig, 
-        fs=sr, 
-        nperseg=nperseg, 
-        noverlap=noverlap,
+    freqs, times, Sxx = scipy.signal.spectrogram(
+        sig,
+        fs=fs,
+        window='hann',
+        nperseg=window_size,
+        noverlap=overlap,
+        nfft=nfft,
         return_onesided=False,
-        scaling='density'
+        detrend=False
     )
-    
-    # Shift frequencies relative to center frequency
-    f = f + center_freq
-    
-    return f, t, Sxx
+
+    freqs = np.fft.fftshift(freqs) * factor + center_freq
+    Sxx = np.fft.fftshift(Sxx, axes=0)
+    return freqs, times, Sxx
 
 def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic_range=60):
     """Normalize spectrogram for better visualization"""
@@ -183,66 +184,52 @@ def plot_spectrogram(
     freq_ranges=None,
     show_colorbar=True,
 ):
-    """
-    Plot spectrogram with optional packet markers and signal overlay
-    """
+    """Displays spectrogram with frequency axis in MHz, with option to mark packet locations."""
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
-    
-    # Convert time to milliseconds for better readability
-    t_ms = t * 1000
-    
-    if signal is not None and not freq_ranges:
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-        ax2 = ax2
-    else:
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-        if freq_ranges:
-            # Handle multiple frequency ranges if needed
-            ax1.axs = [ax1]  # For colorbar compatibility
-            ax2 = None
-        else:
-            ax2 = None
-        im = ax1.pcolormesh(
-            t_ms,
-            f / 1e6,  # Convert to MHz
-            Sxx_db,
-            shading='nearest',
-            cmap='viridis',
-            norm=plt.Normalize(vmin=vmin, vmax=vmax),
-        )
-        ax1.set_ylim(f.min() / 1e6, f.max() / 1e6)
-    
+
+    freq_axis = f / 1e6
+
+    # Protection: ensure freq_ranges is list of tuples
     if freq_ranges:
-        # Plot multiple frequency ranges
-        from matplotlib.colors import Normalize
-        for i, (freq_min, freq_max) in enumerate(freq_ranges):
-            mask = (f >= freq_min) & (f <= freq_max)
-            f_range = f[mask]
-            Sxx_range = Sxx_db[mask, :]
-            
-            if len(f_range) == 0:
-                continue
-                
-            if i == 0:
-                ax1 = plt.subplot(len(freq_ranges), 1, i + 1)
+        try:
+            freq_ranges = list(freq_ranges)
+            freq_ranges = [tuple(fr) for fr in freq_ranges]
+        except Exception as e:
+            warnings.warn(f"freq_ranges invalid: {e}. Will display full spectrogram.")
+            freq_ranges = None
+
+    # If there's only one range, don't use brokenaxes
+    if freq_ranges and len(freq_ranges) == 1:
+        freq_ranges = None
+
+    if freq_ranges and len(freq_ranges) > 1:
+        try:
+            if brokenaxes is None:
+                warnings.warn(
+                    "brokenaxes is not installed; displaying full frequency range"
+                )
+                freq_ranges = None
             else:
-                ax1 = plt.subplot(len(freq_ranges), 1, i + 1, sharex=ax1)
-            
-            im = ax1.pcolormesh(
-                t_ms,
-                f_range / 1e6,
-                Sxx_range,
-                shading='nearest',
-                cmap='viridis',
-                norm=Normalize(vmin=vmin, vmax=vmax),
-            )
-            ax1.set_ylim(f_range.min() / 1e6, f_range.max() / 1e6)
-            ax1.set_ylabel(f'Freq [MHz]\nRange {i+1}')
-            
-            if i == len(freq_ranges) - 1:
-                ax1.set_xlabel('Time [ms]')
-            else:
-                ax1.set_xticklabels([])
+                ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
+                fig = plt.figure(figsize=(12, 6))
+                ax1 = brokenaxes(ylims=ylims, hspace=0.05)
+                im = ax1.pcolormesh(
+                    t,
+                    freq_axis,
+                    Sxx_db,
+                    shading='nearest',
+                    cmap='viridis',
+                    norm=Normalize(vmin=vmin, vmax=vmax),
+                )
+        except Exception as e:
+            warnings.warn(f"שגיאה בשימוש ב-brokenaxes: {e}. תוצג כל הספקטרוגרמה.")
+            freq_ranges = None
+
+    if not freq_ranges:
+        if signal is not None:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+        else:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
             ax2 = None
         im = ax1.pcolormesh(
             t,
@@ -255,7 +242,7 @@ def plot_spectrogram(
         ax1.set_ylim(freq_axis.min(), freq_axis.max())
 
     ax1.set_title(title)
-    ax1.set_xlabel('Time [ms]')
+    ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
     ax1.grid(True)
     marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
@@ -282,9 +269,9 @@ def plot_spectrogram(
             else:
                 show_label = "_nolegend_"
                 style, color = seen_labels[label]
-            ax1.plot(tm * 1000, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
+            ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
     if packet_start is not None and sample_rate is not None:
-        packet_time = packet_start / sample_rate * 1000  # Convert to ms
+        packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
     if show_colorbar:
         if freq_ranges:
@@ -293,17 +280,13 @@ def plot_spectrogram(
             plt.colorbar(im, ax=ax1, label='Power [dB]')
 
     if signal is not None and not freq_ranges:
-        # Plot signal in time domain
-        sample_times_ms = np.arange(len(signal)) / sample_rate * 1000
-        ax2.plot(sample_times_ms, np.abs(signal))
+        ax2.plot(np.abs(signal))
         if packet_start is not None:
-            packet_time_ms = packet_start / sample_rate * 1000
-            ax2.axvline(x=packet_time_ms, color='r', linestyle='--', label='Packet Start')
+            ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
         ax2.set_title('Signal with Packet Start Marker')
-        ax2.set_xlabel('Time [ms]')
+        ax2.set_xlabel('Samples')
         ax2.set_ylabel('Amplitude')
         ax2.legend()
-        ax2.grid(True)
 
     if packet_markers:
         ax1.legend()
@@ -410,7 +393,6 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.xlabel('Samples')
     plt.ylabel('Amplitude')
     plt.legend()
-    plt.grid(True)
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
@@ -427,32 +409,84 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     sample_indices = np.arange(len(signal))
     sample_times_ms = sample_indices / sample_rate * 1000
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    # Create maximized figure and subplots
+    plt.rcParams['figure.max_open_warning'] = 0  # Disable figure warning
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12), height_ratios=[3, 1])
+    plt.ioff(); plt.ion()  # Reset interactive mode
+    
+    manager = fig.canvas.manager
+    try:
+        # Try to maximize window on different backends
+        if hasattr(manager, 'window'):
+            if hasattr(manager.window, 'showMaximized'):
+                manager.window.showMaximized()
+            elif hasattr(manager.window, 'state'):
+                manager.window.state('zoomed')
+            elif hasattr(manager.window, 'wm_state'):
+                manager.window.wm_state('zoomed')
+        elif hasattr(manager, 'full_screen_toggle'):
+            manager.full_screen_toggle()
+        elif hasattr(manager, 'resize'):
+            # Try to get screen dimensions and resize
+            try:
+                import tkinter as tk
+                root = tk.Tk()
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+                root.destroy()
+                manager.resize(screen_width-100, screen_height-100)
+            except:
+                pass
+    except:
+        pass  # If maximization fails, continue with default size
+    
+    # Tight layout with minimal margins for maximum space usage
+    plt.subplots_adjust(bottom=0.12, top=0.96, left=0.06, right=0.98, hspace=0.3)
 
-    pcm = ax1.pcolormesh(t_ms, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    pcm = ax1.pcolormesh(t_ms, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
     ax1.set_ylim(ax1.get_ylim()[::-1])
-    ax1.set_title('Spectrogram - drag the red line to adjust start')
-    ax1.set_xlabel('Time [ms]')
-    ax1.set_ylabel('Frequency [MHz]')
-    ax1.grid(True)
-    # Set ticks every 0.5ms
+    ax1.set_title("INSTRUCTIONS: Click and drag the orange line to adjust packet start position", fontsize=16, weight='bold')
+    ax1.set_xlabel('Time [ms]', fontsize=12)
+    ax1.set_ylabel('Frequency [MHz]', fontsize=12)
+    
+    # Adaptive resolution based on time range
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*2)/2, np.ceil(max_t*2)/2 + 0.5, 0.5))
+    time_range = max_t - min_t
+    
+    if time_range <= 10:  # Up to 10ms - 0.1ms resolution
+        tick_step = 0.1
+        multiplier = 10
+    elif time_range <= 50:  # Up to 50ms - 0.5ms resolution
+        tick_step = 0.5
+        multiplier = 2
+    elif time_range <= 200:  # Up to 200ms - 1ms resolution
+        tick_step = 1.0
+        multiplier = 1
+    elif time_range <= 1000:  # Up to 1 second - 5ms resolution
+        tick_step = 5.0
+        multiplier = 0.2
+    else:  # Over 1 second - 10ms resolution
+        tick_step = 10.0
+        multiplier = 0.1
+    
+    ax1.set_xticks(np.arange(np.floor(min_t*multiplier)/multiplier, np.ceil(max_t*multiplier)/multiplier + tick_step, tick_step))
 
     ax2.plot(sample_times_ms, np.abs(signal))
-    ax2.set_xlabel('Time [ms]')
-    ax2.set_ylabel('Amplitude')
-    ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*2)/2, np.ceil(sample_times_ms[-1]*2)/2 + 0.5, 0.5))
+    ax2.set_xlabel('Time [ms]', fontsize=12)
+    ax2.set_ylabel('Amplitude', fontsize=12)
+    
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*multiplier)/multiplier, np.ceil(sample_times_ms[-1]*multiplier)/multiplier + tick_step, tick_step))
 
-    # Dashed line and label
+    # Clear and prominent line
     packet_time_ms = packet_start / sample_rate * 1000
-    line1 = ax1.axvline(packet_time_ms, color='r', linestyle='--')
-    line2 = ax2.axvline(packet_time_ms, color='r', linestyle='--')
-    # Horizontal annotation
-    label = ax1.annotate(f"{packet_time_ms*1000:.0f} μs", xy=(packet_time_ms, ax1.get_ylim()[1]),
-                        xytext=(0, 5), textcoords='offset points', ha='center', va='bottom', color='red', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    line1 = ax1.axvline(packet_time_ms, color='orange', linestyle='-', linewidth=4, alpha=0.9)
+    line2 = ax2.axvline(packet_time_ms, color='orange', linestyle='-', linewidth=4, alpha=0.9)
+    
+    # Large and clear label
+    label = ax1.annotate(f"PACKET START\n{packet_time_ms*1000:.0f} us", xy=(packet_time_ms, ax1.get_ylim()[1]),
+                        xytext=(0, 10), textcoords='offset points', ha='center', va='bottom', 
+                        color='orange', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='orange'))
 
     state = {'drag': False, 'value': packet_start}
 
@@ -476,7 +510,7 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         line2.set_xdata([packet_time_ms, packet_time_ms])
         # Update label
         label.set_position((packet_time_ms, ax1.get_ylim()[1]))
-        label.set_text(f"{packet_time_ms*1000:.0f} μs")
+        label.set_text(f"PACKET START\n{packet_time_ms*1000:.0f} us")
         fig.canvas.draw_idle()
 
     def _release(event):
@@ -487,7 +521,22 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
 
     plt.tight_layout()
-    plt.show()
+    print("\n" + "="*50)
+    print("INTERACTIVE WINDOW OPENED")
+    print("Instructions:")
+    print("1. Click and drag the orange line")
+    print("2. Close window when done")
+    print("="*50)
+    
+    # Show and wait for user interaction
+    plt.show(block=True)
+    
+    # Wait for window to be closed
+    try:
+        while plt.get_fignums():
+            plt.pause(0.1)
+    except:
+        pass
 
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
@@ -502,6 +551,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
+    # Reverse frequency axis and matrix to descending order (positive left, negative right)
     if f[0] < f[-1]:
         f = f[::-1]
         Sxx_db = Sxx_db[::-1, :]
@@ -510,44 +560,102 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     sample_indices = np.arange(len(signal))
     sample_times_ms = sample_indices / sample_rate * 1000
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-    plt.subplots_adjust(bottom=0.18)  # Space for buttons
+    # Create maximized figure and subplots
+    plt.rcParams['figure.max_open_warning'] = 0  # Disable figure warning
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12), height_ratios=[3, 1])
+    plt.ioff(); plt.ion()  # Reset interactive mode
+    
+    manager = fig.canvas.manager
+    try:
+        # Try to maximize window on different backends
+        if hasattr(manager, 'window'):
+            if hasattr(manager.window, 'showMaximized'):
+                manager.window.showMaximized()
+            elif hasattr(manager.window, 'state'):
+                manager.window.state('zoomed')
+            elif hasattr(manager.window, 'wm_state'):
+                manager.window.wm_state('zoomed')
+        elif hasattr(manager, 'full_screen_toggle'):
+            manager.full_screen_toggle()
+        elif hasattr(manager, 'resize'):
+            # Try to get screen dimensions and resize
+            try:
+                import tkinter as tk
+                root = tk.Tk()
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+                root.destroy()
+                manager.resize(screen_width-100, screen_height-100)
+            except:
+                pass
+    except:
+        pass  # If maximization fails, continue with default size
+    
+    # Tight layout with minimal margins for maximum space usage
+    plt.subplots_adjust(bottom=0.12, top=0.96, left=0.06, right=0.98, hspace=0.3)
 
     pcm = ax1.pcolormesh(t_ms, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
     ax1.set_ylim(ax1.get_ylim()[::-1])
-    ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
-    ax1.set_xlabel('Time [ms]')
-    ax1.set_ylabel('Frequency [MHz]')
-    ax1.grid(True)
+    ax1.set_title("INSTRUCTIONS: Click 'g' for green line, 'r' for red line. Click and drag to move. Press Enter to finish.", fontsize=16, weight='bold')
+    ax1.set_xlabel('Time [ms]', fontsize=12)
+    ax1.set_ylabel('Frequency [MHz]', fontsize=12)
+    
+    # Adaptive resolution based on time range
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*2)/2, np.ceil(max_t*2)/2 + 0.5, 0.5))
+    time_range = max_t - min_t
+    
+    if time_range <= 10:  # Up to 10ms - 0.1ms resolution
+        tick_step = 0.1
+        multiplier = 10
+    elif time_range <= 50:  # Up to 50ms - 0.5ms resolution
+        tick_step = 0.5
+        multiplier = 2
+    elif time_range <= 200:  # Up to 200ms - 1ms resolution
+        tick_step = 1.0
+        multiplier = 1
+    elif time_range <= 1000:  # Up to 1 second - 5ms resolution
+        tick_step = 5.0
+        multiplier = 0.2
+    else:  # Over 1 second - 10ms resolution
+        tick_step = 10.0
+        multiplier = 0.1
+    
+    ax1.set_xticks(np.arange(np.floor(min_t*multiplier)/multiplier, np.ceil(max_t*multiplier)/multiplier + tick_step, tick_step))
 
     ax2.plot(sample_times_ms, np.abs(signal))
-    ax2.set_xlabel('Time [ms]')
-    ax2.set_ylabel('Amplitude')
-    ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*2)/2, np.ceil(sample_times_ms[-1]*2)/2 + 0.5, 0.5))
+    ax2.set_xlabel('Time [ms]', fontsize=12)
+    ax2.set_ylabel('Amplitude', fontsize=12)
+    
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*multiplier)/multiplier, np.ceil(sample_times_ms[-1]*multiplier)/multiplier + tick_step, tick_step))
 
     start_time_ms = start_sample / sample_rate * 1000
     end_time_ms = end_sample / sample_rate * 1000
-    start_line1 = ax1.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
-    end_line1 = ax1.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
-    start_line2 = ax2.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
-    end_line2 = ax2.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
-    # Horizontal labels
-    label_start = ax1.annotate(f"{start_time_ms*1000:.0f} μs", xy=(start_time_ms, ax1.get_ylim()[0]),
-                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='green', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
-    label_end = ax1.annotate(f"{end_time_ms*1000:.0f} μs", xy=(end_time_ms, ax1.get_ylim()[0]),
-                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='red', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    
+    # Thick and colorful lines for better visibility
+    start_line1 = ax1.axvline(start_time_ms, color='lime', linestyle='-', linewidth=3, alpha=0.8)
+    end_line1 = ax1.axvline(end_time_ms, color='red', linestyle='-', linewidth=3, alpha=0.8)
+    start_line2 = ax2.axvline(start_time_ms, color='lime', linestyle='-', linewidth=3, alpha=0.8)
+    end_line2 = ax2.axvline(end_time_ms, color='red', linestyle='-', linewidth=3, alpha=0.8)
+    
+    # Large and clear labels
+    label_start = ax1.annotate(f"START\n{start_time_ms*1000:.0f} us", xy=(start_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -25), textcoords='offset points', ha='center', va='top', 
+                        color='lime', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='lime'))
+    label_end = ax1.annotate(f"END\n{end_time_ms*1000:.0f} us", xy=(end_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -25), textcoords='offset points', ha='center', va='top', 
+                        color='red', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='red'))
     
     state = {'drag': None, 'active': 'start', 'start': start_sample, 'end': end_sample}
-    # Delta label (above right corner)
+    
+    # Enlarged and clear packet length label
     def get_delta_us():
         return abs((state['end'] - state['start']) / sample_rate * 1e6)
     delta_us = get_delta_us()
-    delta_label = ax1.annotate(f"Δ: {delta_us:.0f} μs", xy=(1, 1.08), xycoords='axes fraction', ha='right', va='bottom', fontsize=14, color='blue', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+    delta_label = ax1.annotate(f"PACKET LENGTH\nΔ: {delta_us:.0f} us", xy=(1, 1.12), xycoords='axes fraction', 
+                              ha='right', va='bottom', fontsize=14, weight='bold', color='white',
+                              bbox=dict(boxstyle='round,pad=0.5', fc='blue', alpha=0.9, edgecolor='white'))
 
     def update_lines_and_labels():
         start_time_ms = state['start'] / sample_rate * 1000
@@ -556,26 +664,35 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
         end_line1.set_xdata([end_time_ms, end_time_ms])
         start_line2.set_xdata([start_time_ms, start_time_ms])
         end_line2.set_xdata([end_time_ms, end_time_ms])
-        # Update time labels at line head (bottom y)
+        
+        # Update time labels
         y_bottom = ax1.get_ylim()[0]
         label_start.set_position((start_time_ms, y_bottom))
-        label_start.set_text(f"{start_time_ms*1000:.0f} μs")
+        label_start.set_text(f"START\n{start_time_ms*1000:.0f} us")
         label_end.set_position((end_time_ms, y_bottom))
-        label_end.set_text(f"{end_time_ms*1000:.0f} μs")
+        label_end.set_text(f"END\n{end_time_ms*1000:.0f} us")
+        
         # Update delta label
         delta_us = get_delta_us()
-        delta_label.set_text(f"Δ: {delta_us:.0f} μs")
+        delta_label.set_text(f"PACKET LENGTH\nΔ: {delta_us:.0f} us")
+        
+        # Highlight active line
+        if state['active'] == 'start':
+            start_line1.set_linewidth(4)
+            start_line2.set_linewidth(4)
+            end_line1.set_linewidth(2)
+            end_line2.set_linewidth(2)
+        else:
+            start_line1.set_linewidth(2)
+            start_line2.set_linewidth(2)
+            end_line1.set_linewidth(4)
+            end_line2.set_linewidth(4)
+            
         fig.canvas.draw_idle()
 
     def _select(which):
         state['active'] = which
-        start_lw = 2 if which == 'start' else 1
-        end_lw = 2 if which == 'end' else 1
-        start_line1.set_linewidth(start_lw)
-        start_line2.set_linewidth(start_lw)
-        end_line1.set_linewidth(end_lw)
-        end_line2.set_linewidth(end_lw)
-        fig.canvas.draw_idle()
+        update_lines_and_labels()
 
     _select('start')
 
@@ -607,11 +724,16 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     def _release(event):
         state['drag'] = None
 
-    # Move buttons - new position centered below bottom graph
-    axprev = plt.axes([0.42, 0.01, 0.07, 0.05])
-    axnext = plt.axes([0.51, 0.01, 0.07, 0.05])
-    bprev = Button(axprev, '<< 1μs')
-    bnext = Button(axnext, '1μs >>')
+    # Fine adjustment buttons - now with 0.1us movement for high precision
+    axprev = plt.axes([0.35, 0.01, 0.08, 0.05])
+    axnext = plt.axes([0.44, 0.01, 0.08, 0.05])
+    axprev_fine = plt.axes([0.53, 0.01, 0.08, 0.05])
+    axnext_fine = plt.axes([0.62, 0.01, 0.08, 0.05])
+    
+    bprev = Button(axprev, '<< 1us')
+    bnext = Button(axnext, '1us >>')
+    bprev_fine = Button(axprev_fine, '<< 0.1us')
+    bnext_fine = Button(axnext_fine, '0.1us >>')
 
     def move_line(delta_us):
         delta_samples = int(round(delta_us * sample_rate / 1e6))
@@ -623,6 +745,8 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
 
     bprev.on_clicked(lambda event: move_line(-1))
     bnext.on_clicked(lambda event: move_line(1))
+    bprev_fine.on_clicked(lambda event: move_line(-0.1))
+    bnext_fine.on_clicked(lambda event: move_line(0.1))
 
     cid_press = fig.canvas.mpl_connect('button_press_event', _press)
     cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
@@ -638,7 +762,25 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     )
 
     plt.tight_layout()
-    plt.show()
+    print("\n" + "="*60)
+    print("INTERACTIVE WINDOW OPENED")
+    print("Instructions:")
+    print("1. Press 'g' to select green START line")
+    print("2. Press 'r' to select red END line") 
+    print("3. Click and drag to move the selected line")
+    print("4. Use buttons for fine adjustment")
+    print("5. Press Enter to finish and close")
+    print("="*60)
+    
+    # Show and wait for user interaction
+    plt.show(block=True)
+    
+    # Wait for window to be closed
+    try:
+        while plt.get_fignums():
+            plt.pause(0.1)
+    except:
+        pass
 
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
