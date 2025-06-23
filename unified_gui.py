@@ -96,6 +96,33 @@ class ModernPacketExtractor:
         self.signal_length_label = ctk.CTkLabel(info_frame, text="Signal Length: --")
         self.signal_length_label.pack(side="left", padx=10, pady=5)
         
+        # Packet name input
+        name_frame = ctk.CTkFrame(extraction_frame)
+        name_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(name_frame, text="Packet Name:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=10, pady=5)
+        
+        self.packet_name_var = tk.StringVar(value=f"packet_{len(self.extracted_packets)+1}")
+        self.packet_name_entry = ctk.CTkEntry(
+            name_frame, 
+            textvariable=self.packet_name_var,
+            placeholder_text="Enter packet name...",
+            width=200,
+            height=35,
+            font=ctk.CTkFont(size=14)
+        )
+        self.packet_name_entry.pack(side="left", padx=10, pady=5)
+        
+        # Auto-update button
+        auto_name_button = ctk.CTkButton(
+            name_frame,
+            text="Auto Name",
+            command=self.auto_generate_name,
+            width=80,
+            height=35
+        )
+        auto_name_button.pack(side="left", padx=5, pady=5)
+        
         # Action buttons
         button_frame = ctk.CTkFrame(extraction_frame)
         button_frame.pack(fill="x", padx=10, pady=10)
@@ -114,13 +141,35 @@ class ModernPacketExtractor:
         packets_frame = ctk.CTkFrame(main_frame)
         packets_frame.pack(fill="both", expand=True, padx=20, pady=10)
         
-        # Section title
+        # Section title with refresh button
+        packets_header = ctk.CTkFrame(packets_frame)
+        packets_header.pack(fill="x", pady=(10, 5))
+        
         packets_title = ctk.CTkLabel(
-            packets_frame,
+            packets_header,
             text="Extracted Packets:",
             font=ctk.CTkFont(size=16, weight="bold")
         )
-        packets_title.pack(pady=(10, 5))
+        packets_title.pack(side="left", pady=5)
+        
+        # Auto-refresh toggle
+        self.auto_refresh_var = tk.BooleanVar(value=True)
+        auto_refresh_check = ctk.CTkCheckBox(
+            packets_header,
+            text="Auto Refresh",
+            variable=self.auto_refresh_var,
+            font=ctk.CTkFont(size=12)
+        )
+        auto_refresh_check.pack(side="right", padx=10, pady=5)
+        
+        refresh_button = ctk.CTkButton(
+            packets_header,
+            text="Refresh Now",
+            command=self.refresh_packet_list,
+            width=100,
+            height=30
+        )
+        refresh_button.pack(side="right", padx=5, pady=5)
         
         # Create scrollable frame for packets list
         self.packets_scroll = ctk.CTkScrollableFrame(packets_frame, height=150)
@@ -133,9 +182,98 @@ class ModernPacketExtractor:
         ctk.CTkLabel(headers_frame, text="Packet Name", width=200, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
         ctk.CTkLabel(headers_frame, text="Samples", width=100, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
         ctk.CTkLabel(headers_frame, text="Duration (ms)", width=120, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(headers_frame, text="Actions", width=100, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
         
         # Initialize packets list
         self.packet_rows = []
+        
+        # Load existing packets on startup
+        self.refresh_packet_list()
+        
+    def auto_generate_name(self):
+        """Auto-generate packet name"""
+        self.packet_name_var.set(f"packet_{len(self.extracted_packets)+1}")
+        
+    def refresh_packet_list(self):
+        """Refresh the displayed packet list"""
+        try:
+            # Clear existing rows
+            for row in self.packet_rows:
+                row.destroy()
+            self.packet_rows = []
+            
+            # Scan data directory for existing packets
+            if os.path.exists("data"):
+                packet_files = [f for f in os.listdir("data") if f.endswith('.mat')]
+                packet_files.sort()  # Sort alphabetically
+                
+                for packet_file in packet_files:
+                    try:
+                        # Load packet to get info
+                        packet_path = os.path.join("data", packet_file)
+                        data = sio.loadmat(packet_path, squeeze_me=True)
+                        
+                        if 'Y' in data:
+                            packet_data = data['Y']
+                            if packet_data.ndim > 1:
+                                packet_data = packet_data.flatten()
+                        else:
+                            # Try to find the main data variable
+                            candidates = [k for k in data.keys() if not k.startswith('__')]
+                            if candidates:
+                                packet_data = data[candidates[0]]
+                                if packet_data.ndim > 1:
+                                    packet_data = packet_data.flatten()
+                            else:
+                                continue
+                        
+                        # Create display row
+                        packet_row = ctk.CTkFrame(self.packets_scroll)
+                        packet_row.pack(fill="x", pady=2)
+                        
+                        packet_name = os.path.splitext(packet_file)[0]
+                        duration_ms = len(packet_data) / TARGET_SAMPLE_RATE * 1000
+                        
+                        ctk.CTkLabel(packet_row, text=packet_name, width=200).pack(side="left", padx=5)
+                        ctk.CTkLabel(packet_row, text=f"{len(packet_data):,}", width=100).pack(side="left", padx=5)
+                        ctk.CTkLabel(packet_row, text=f"{duration_ms:.1f}", width=120).pack(side="left", padx=5)
+                        
+                        # Delete button
+                        delete_btn = ctk.CTkButton(
+                            packet_row,
+                            text="Delete",
+                            command=lambda p=packet_path: self.delete_packet(p),
+                            width=80,
+                            height=25,
+                            fg_color="red",
+                            hover_color="darkred"
+                        )
+                        delete_btn.pack(side="left", padx=5)
+                        
+                        self.packet_rows.append(packet_row)
+                        
+                    except Exception as e:
+                        print(f"Error loading packet {packet_file}: {e}")
+                        continue
+                        
+            print(f"Packet list refreshed: found {len(self.packet_rows)} packets")
+            
+        except Exception as e:
+            print(f"Error refreshing packet list: {e}")
+            
+    def delete_packet(self, packet_path):
+        """Delete a packet file"""
+        try:
+            result = messagebox.askyesno(
+                "Confirm Delete", 
+                f"Are you sure you want to delete {os.path.basename(packet_path)}?"
+            )
+            if result:
+                os.remove(packet_path)
+                self.refresh_packet_list()
+                messagebox.showinfo("Success", "Packet deleted successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error deleting packet: {e}")
         
     def load_file(self):
         """Load MAT file with performance optimization"""
@@ -235,15 +373,33 @@ class ModernPacketExtractor:
                 messagebox.showerror("Error", "Empty packet")
                 return
             
-            # Save packet
-            packet_name = f"packet_{len(self.extracted_packets)+1}"
+            # Validate and clean packet name
+            packet_name = self.packet_name_var.get().strip()
+            if not packet_name:
+                packet_name = f"packet_{len(self.extracted_packets)+1}"
+                self.packet_name_var.set(packet_name)
+            
+            # Remove invalid characters from filename
+            import re
+            packet_name = re.sub(r'[<>:"/\\|?*]', '_', packet_name)
+            
+            # Check if file already exists and ask for confirmation
+            file_path = f"data/{packet_name}.mat"
+            if os.path.exists(file_path):
+                result = messagebox.askyesno(
+                    "File Exists", 
+                    f"A packet named '{packet_name}' already exists. Overwrite?"
+                )
+                if not result:
+                    return
+            
             packet_info = {
                 'name': packet_name,
                 'data': packet,
                 'sample_rate': sample_rate,
                 'start_sample': self.start_sample,
                 'end_sample': self.end_sample,
-                'file_path': f"data/{packet_name}.mat"
+                'file_path': file_path
             }
             
             # Create data directory if it doesn't exist
@@ -256,19 +412,21 @@ class ModernPacketExtractor:
             # Add to list
             self.extracted_packets.append(packet_info)
             
-            # Add visual row to the packets list
-            packet_row = ctk.CTkFrame(self.packets_scroll)
-            packet_row.pack(fill="x", pady=2)
-            
-            ctk.CTkLabel(packet_row, text=packet_name, width=200).pack(side="left", padx=5)
-            ctk.CTkLabel(packet_row, text=f"{len(packet):,}", width=100).pack(side="left", padx=5)
-            ctk.CTkLabel(packet_row, text=f"{len(packet) / sample_rate * 1000:.1f}", width=120).pack(side="left", padx=5)
-            
-            self.packet_rows.append(packet_row)
+            # Auto-refresh the packet list if enabled
+            if self.auto_refresh_var.get():
+                self.refresh_packet_list()
+                
+                # Also refresh the vector building tab if connected
+                if hasattr(self, 'parent_app') and self.parent_app:
+                    self.parent_app.auto_refresh_packets()
+                
+            # Update name for next packet
+            next_num = len(self.extracted_packets) + 1
+            self.packet_name_var.set(f"packet_{next_num}")
             
             messagebox.showinfo(
                 "Success", 
-                f"Packet extracted and saved successfully!\nName: {packet_name}\nLength: {len(packet):,} samples"
+                f"Packet extracted and saved successfully!\nName: {packet_name}\nLength: {len(packet):,} samples\nDuration: {len(packet) / sample_rate * 1000:.1f} ms"
             )
             
         except Exception as e:
@@ -449,6 +607,9 @@ class UnifiedVectorApp:
         self.extraction_tab = self.notebook.add("Packet Extraction")
         self.packet_extractor = ModernPacketExtractor(self.extraction_tab)
         
+        # Set up connection for auto-refresh
+        self.packet_extractor.parent_app = self
+        
         # Vector building tab
         self.vector_tab = self.notebook.add("Vector Building")
         self.create_vector_tab()
@@ -462,6 +623,9 @@ class UnifiedVectorApp:
             font=ctk.CTkFont(size=12)
         )
         refresh_button.pack(pady=5)
+        
+        # Start auto-refresh timer (every 2 seconds)
+        self.start_auto_refresh_timer()
         
     def create_vector_tab(self):
         """Create vector building tab"""
@@ -581,7 +745,52 @@ class UnifiedVectorApp:
             if self.packet_files and not pc.packet_var.get():
                 pc.packet_var.set(self.packet_files[0])
                 
-        messagebox.showinfo("Refresh", f"Packet list updated! Found {len(self.packet_files)} packets.")
+        # Also refresh the extractor's packet list if it exists
+        if hasattr(self, 'packet_extractor') and hasattr(self.packet_extractor, 'refresh_packet_list'):
+            self.packet_extractor.refresh_packet_list()
+                
+        print(f"Packet list updated! Found {len(self.packet_files)} packets.")
+        
+    def auto_refresh_packets(self):
+        """Auto-refresh packets without showing message"""
+        self.update_packet_files()
+        
+        # Update all menus silently
+        for pc in self.packet_configs:
+            current_values = self.packet_files if self.packet_files else ["No packets available"]
+            pc.packet_menu.configure(values=current_values)
+            if self.packet_files and not pc.packet_var.get():
+                pc.packet_var.set(self.packet_files[0])
+                
+        # Also refresh the extractor's packet list if it exists
+        if hasattr(self, 'packet_extractor') and hasattr(self.packet_extractor, 'refresh_packet_list'):
+            self.packet_extractor.refresh_packet_list()
+            
+    def start_auto_refresh_timer(self):
+        """Start automatic refresh timer"""
+        def check_for_updates():
+            try:
+                # Store current packet count
+                if not hasattr(self, '_last_packet_count'):
+                    self._last_packet_count = len(self.packet_files)
+                
+                # Check if packet count changed
+                self.update_packet_files()
+                current_count = len(self.packet_files)
+                
+                if current_count != self._last_packet_count:
+                    print(f"Packet count changed: {self._last_packet_count} -> {current_count}")
+                    self.auto_refresh_packets()
+                    self._last_packet_count = current_count
+                    
+            except Exception as e:
+                print(f"Auto-refresh error: {e}")
+            
+            # Schedule next check
+            self.root.after(2000, check_for_updates)  # Check every 2 seconds
+            
+        # Start the timer
+        self.root.after(1000, check_for_updates)  # First check after 1 second
         
     def generate_mat_vector(self):
         """Generate MAT vector"""
