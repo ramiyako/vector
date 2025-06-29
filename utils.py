@@ -125,11 +125,7 @@ def compute_freq_ranges(shifts, margin=1e6):
     return [(freq_min, freq_max)]
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
-    """Creates spectrogram from signal.
-
-    If the signal is very long, fast downsampling is performed to speed up computation.
-    """
-
+    """Creates high-resolution spectrogram from signal."""
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
@@ -138,15 +134,14 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         factor = 1
         fs = sr
 
-    # Improved spectrogram parameters for better resolution
-    window_size = min(2048, len(sig) // 8)  # Larger window for better frequency resolution
-    overlap = int(window_size * 0.75)  # Greater overlap for better time resolution
-    nfft = max(window_size, 2048)  # Larger FFT
-    
+    window_size = min(8192, len(sig) // 4)      # Larger window for frequency precision
+    overlap = int(window_size * 0.9)            # 90% overlap for time continuity
+    nfft = 16384                                # More frequency bins (sharpness)
+
     freqs, times, Sxx = scipy.signal.spectrogram(
         sig,
         fs=fs,
-        window='hann',
+        window='blackmanharris',                # Better sidelobe suppression
         nperseg=window_size,
         noverlap=overlap,
         nfft=nfft,
@@ -158,18 +153,20 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
-def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic_range=60):
-    """Normalize spectrogram for better visualization"""
+
+def normalize_spectrogram(Sxx, low_percentile=10, high_percentile=98, max_dynamic_range=60):
+    """Normalize spectrogram with clipping and dB scaling."""
     Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-12)
-    
+
     vmin = np.percentile(Sxx_db, low_percentile)
     vmax = np.percentile(Sxx_db, high_percentile)
-    
-    # Limit dynamic range
+
     if vmax - vmin > max_dynamic_range:
         vmin = vmax - max_dynamic_range
-    
+
+    vmin = max(vmin, -100)  # Clip floor
     return Sxx_db, vmin, vmax
+
 
 def plot_spectrogram(
     f,
@@ -184,106 +181,55 @@ def plot_spectrogram(
     freq_ranges=None,
     show_colorbar=True,
 ):
-    """Displays spectrogram with frequency axis in MHz, with option to mark packet locations."""
+    """Plot sharp and clear spectrogram with enhancements."""
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    freq_axis = f / 1e6  # MHz
 
-    freq_axis = f / 1e6
+    fig, ax1 = plt.subplots(figsize=(12, 6)) if signal is None else plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    ax2 = None if signal is None else fig.axes[1]
 
-    # Protection: ensure freq_ranges is list of tuples
-    if freq_ranges:
-        try:
-            freq_ranges = list(freq_ranges)
-            freq_ranges = [tuple(fr) for fr in freq_ranges]
-        except Exception as e:
-            warnings.warn(f"freq_ranges invalid: {e}. Will display full spectrogram.")
-            freq_ranges = None
-
-    # If there's only one range, don't use brokenaxes
-    if freq_ranges and len(freq_ranges) == 1:
-        freq_ranges = None
-
-    if freq_ranges and len(freq_ranges) > 1:
-        try:
-            if brokenaxes is None:
-                warnings.warn(
-                    "brokenaxes is not installed; displaying full frequency range"
-                )
-                freq_ranges = None
-            else:
-                ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
-                fig = plt.figure(figsize=(12, 6))
-                ax1 = brokenaxes(ylims=ylims, hspace=0.05)
-                im = ax1.pcolormesh(
-                    t,
-                    freq_axis,
-                    Sxx_db,
-                    shading='nearest',
-                    cmap='viridis',
-                    norm=Normalize(vmin=vmin, vmax=vmax),
-                )
-        except Exception as e:
-            warnings.warn(f"שגיאה בשימוש ב-brokenaxes: {e}. תוצג כל הספקטרוגרמה.")
-            freq_ranges = None
-
-    if not freq_ranges:
-        if signal is not None:
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-        else:
-            fig, ax1 = plt.subplots(figsize=(12, 6))
-            ax2 = None
-        im = ax1.pcolormesh(
-            t,
-            freq_axis,
-            Sxx_db,
-            shading='nearest',
-            cmap='viridis',
-            norm=Normalize(vmin=vmin, vmax=vmax),
-        )
-        ax1.set_ylim(freq_axis.min(), freq_axis.max())
+    im = ax1.pcolormesh(
+        t,
+        freq_axis,
+        Sxx_db,
+        shading='gouraud',            # Smooth interpolation
+        cmap='inferno',               # High-contrast colormap
+        norm=Normalize(vmin=vmin, vmax=vmax),
+    )
 
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
+    ax1.set_ylim(freq_axis.min(), freq_axis.max())
     ax1.grid(True)
-    marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+
+    # Packet markers (optional)
     if packet_markers:
+        marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
         seen_labels = {}
         for idx, marker in enumerate(packet_markers):
-            if len(marker) >= 5:
-                tm, freq, label, style, color = marker[:5]
-            elif len(marker) == 4:
-                tm, freq, label, style = marker
-                color = f"C{idx % 10}"
-            elif len(marker) == 3:
-                tm, freq, label = marker
-                style = marker_styles[idx % len(marker_styles)]
-                color = f"C{idx % 10}"
-            else:
-                tm, freq = marker[:2]
-                label = None
-                style = marker_styles[idx % len(marker_styles)]
-                color = f"C{idx % 10}"
-            if label not in seen_labels:
-                show_label = label
-                seen_labels[label] = (style, color)
-            else:
-                show_label = "_nolegend_"
-                style, color = seen_labels[label]
+            tm, freq = marker[:2]
+            label = marker[2] if len(marker) > 2 else None
+            style = marker[3] if len(marker) > 3 else marker_styles[idx % len(marker_styles)]
+            color = marker[4] if len(marker) > 4 else f"C{idx % 10}"
+            show_label = label if label not in seen_labels else "_nolegend_"
+            seen_labels[label] = (style, color)
             ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
+
+    # Vertical packet start line
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
-    if show_colorbar:
-        if freq_ranges:
-            plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
-        else:
-            plt.colorbar(im, ax=ax1, label='Power [dB]')
 
-    if signal is not None and not freq_ranges:
+    if show_colorbar:
+        plt.colorbar(im, ax=ax1, label='Power [dB]')
+
+    # Signal waveform below (optional)
+    if signal is not None:
         ax2.plot(np.abs(signal))
         if packet_start is not None:
             ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
-        ax2.set_title('Signal with Packet Start Marker')
+        ax2.set_title('Signal Amplitude')
         ax2.set_xlabel('Samples')
         ax2.set_ylabel('Amplitude')
         ax2.legend()
@@ -293,6 +239,7 @@ def plot_spectrogram(
 
     plt.tight_layout()
     plt.show()
+
 
 def save_vector(vector, output_path):
     """Save vector as MAT file"""
