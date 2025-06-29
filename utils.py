@@ -126,6 +126,8 @@ def compute_freq_ranges(shifts, margin=1e6):
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     """Creates high-resolution spectrogram from signal."""
+    if len(sig) == 0:
+        raise ValueError("Signal is empty")
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
