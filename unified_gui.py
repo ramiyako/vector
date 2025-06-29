@@ -442,16 +442,16 @@ class ModernPacketConfig:
         
         # Title
         title_label = ctk.CTkLabel(
-            self.frame, 
-            text=f"Packet {idx+1}", 
+            self.frame,
+            text=f"Packet {idx+1}",
             font=ctk.CTkFont(size=16, weight="bold"),
-            anchor="e"
+            anchor="w"
         )
         title_label.pack(pady=5, fill="x")
         
         # Packet selection
-        packet_label = ctk.CTkLabel(self.frame, text="Select Packet:", anchor="e")
-        packet_label.pack(anchor="e", padx=10)
+        packet_label = ctk.CTkLabel(self.frame, text="Select Packet:", anchor="w")
+        packet_label.pack(anchor="w", padx=10)
         
         self.packet_var = tk.StringVar()
         self.packet_menu = ctk.CTkOptionMenu(
@@ -471,21 +471,21 @@ class ModernPacketConfig:
         row1 = ctk.CTkFrame(params_frame)
         row1.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(row1, text="Freq Shift (MHz):", width=120, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(row1, text="Freq Shift (MHz):", width=120, anchor="w").pack(side="left", padx=5)
         self.freq_shift_var = tk.StringVar(value="0")
-        ctk.CTkEntry(row1, textvariable=self.freq_shift_var, width=100).pack(side="right", padx=5)
-        
-        ctk.CTkLabel(row1, text="Period (ms):", width=80, anchor="e").pack(side="right", padx=5)
+        ctk.CTkEntry(row1, textvariable=self.freq_shift_var, width=100).pack(side="left", padx=5)
+
+        ctk.CTkLabel(row1, text="Period (ms):", width=80, anchor="w").pack(side="left", padx=5)
         self.period_var = tk.StringVar(value="100")
-        ctk.CTkEntry(row1, textvariable=self.period_var, width=80).pack(side="right", padx=5)
+        ctk.CTkEntry(row1, textvariable=self.period_var, width=80).pack(side="left", padx=5)
         
         # Row 2
         row2 = ctk.CTkFrame(params_frame)
         row2.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(row2, text="Start Time Offset (ms):", width=140, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(row2, text="Start Time Offset (ms):", width=140, anchor="w").pack(side="left", padx=5)
         self.start_time_var = tk.StringVar(value="0")
-        ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="right", padx=5)
+        ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="left", padx=5)
         
         # Action buttons
         buttons_frame = ctk.CTkFrame(self.frame)
@@ -496,14 +496,14 @@ class ModernPacketConfig:
             text="Show Spectrogram", 
             command=self.show_spectrogram, 
             width=120
-        ).pack(side="right", padx=5)
+        ).pack(side="left", padx=5)
         
         ctk.CTkButton(
             buttons_frame, 
             text="Analyze Packet", 
             command=self.analyze_packet, 
             width=120
-        ).pack(side="right", padx=5)
+        ).pack(side="left", padx=5)
         
     def get_config(self):
         """Get packet configuration"""
@@ -635,10 +635,10 @@ class UnifiedVectorApp:
         
         # Title
         title_label = ctk.CTkLabel(
-            main_frame, 
-            text="Vector Building", 
+            main_frame,
+            text="Vector Building",
             font=ctk.CTkFont(size=24, weight="bold"),
-            anchor="e"
+            anchor="w"
         )
         title_label.pack(pady=10, fill="x")
         
@@ -647,10 +647,10 @@ class UnifiedVectorApp:
         general_frame.pack(fill="x", padx=20, pady=10)
         
         general_label = ctk.CTkLabel(
-            general_frame, 
-            text="General Parameters", 
+            general_frame,
+            text="General Parameters",
             font=ctk.CTkFont(size=16, weight="bold"),
-            anchor="e"
+            anchor="w"
         )
         general_label.pack(pady=5, fill="x")
         
@@ -658,14 +658,14 @@ class UnifiedVectorApp:
         length_frame = ctk.CTkFrame(general_frame)
         length_frame.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkLabel(length_frame, text="Vector Length (milliseconds):", width=150, anchor="e").pack(side="right", padx=5)
-        ctk.CTkEntry(length_frame, textvariable=self.vector_length_var, width=100).pack(side="right", padx=5)
+        ctk.CTkLabel(length_frame, text="Vector Length (milliseconds):", width=150, anchor="w").pack(side="left", padx=5)
+        ctk.CTkEntry(length_frame, textvariable=self.vector_length_var, width=100).pack(side="left", padx=5)
         
         # Number of packets
         packets_frame = ctk.CTkFrame(general_frame)
         packets_frame.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkLabel(packets_frame, text="Number of Packets (1-6):", width=150, anchor="e").pack(side="right", padx=5)
+        ctk.CTkLabel(packets_frame, text="Number of Packets (1-6):", width=150, anchor="w").pack(side="left", padx=5)
         ctk.CTkSlider(
             packets_frame, 
             from_=1, 
@@ -673,10 +673,10 @@ class UnifiedVectorApp:
             number_of_steps=MAX_PACKETS-1, 
             variable=self.packet_count, 
             command=self.update_packet_configs
-        ).pack(side="right", padx=5, fill="x", expand=True)
+        ).pack(side="left", padx=5, fill="x", expand=True)
         
         self.packet_count_label = ctk.CTkLabel(packets_frame, text="1", width=50)
-        self.packet_count_label.pack(side="right", padx=5)
+        self.packet_count_label.pack(side="left", padx=5)
         
         # Normalization
         normalize_frame = ctk.CTkFrame(general_frame)
@@ -686,7 +686,7 @@ class UnifiedVectorApp:
             normalize_frame, 
             text="Normalize Final Vector", 
             variable=self.normalize
-        ).pack(side="right", padx=5)
+        ).pack(side="left", padx=5)
         
         # Packets container
         self.packets_container = ctk.CTkScrollableFrame(main_frame)
@@ -702,7 +702,7 @@ class UnifiedVectorApp:
             command=self.generate_mat_vector,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
-        ).pack(side="right", padx=10, pady=5)
+        ).pack(side="left", padx=10, pady=5)
         
         ctk.CTkButton(
             buttons_frame,
@@ -710,7 +710,7 @@ class UnifiedVectorApp:
             command=self.generate_wv_vector,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold")
-        ).pack(side="right", padx=10, pady=5)
+        ).pack(side="left", padx=10, pady=5)
         
         # Create initial packet configurations (now that everything is ready)
         self.update_packet_configs()
