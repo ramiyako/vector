@@ -1,125 +1,133 @@
+"""
+Signal processing utilities for packet extraction and vector generation
+Utility functions for signal processing, spectrogram creation, and packet manipulation
+"""
+
+import os
 import numpy as np
 import scipy.io as sio
-import librosa
+import scipy.signal
 import matplotlib.pyplot as plt
-from scipy import signal
-import matplotlib as mpl
-from matplotlib.colors import Normalize
+from matplotlib.widgets import Button
 import warnings
+from matplotlib.colors import Normalize
 try:
     from brokenaxes import brokenaxes
 except ImportError:  # pragma: no cover - optional dependency
     brokenaxes = None
-from matplotlib.widgets import Button
-
-# הגדרת כיוון RTL לטקסט בעברית
-plt.rcParams['font.family'] = 'Arial'
-plt.rcParams['axes.unicode_minus'] = False
 
 def get_sample_rate_from_mat(file_path):
-    """מחלץ את קצב הדגימה מקובץ ``.mat``.
-
-    הפונקציה מנסה למצוא שדה הקרוי ``xDelta`` (בכתיבים שונים) ומשתמשת בו כדי
-    לחשב את קצב הדגימה. ישנם קבצים שבהם השדה כבר מכיל את קצב הדגימה עצמו
-    (לדוגמה "xDelta" = 56000000), ואחרים שבהם השדה מייצג את מרווח הדגימה
-    (למשל ``1/Fs``). לכן מתבצעת בדיקה פשוטה: אם הערך גדול מ-1 הוא נחשב כקצב
-    הדגימה, אחרת משתמשים ב-
-    ``1 / value``.
-    """
-
-    data = sio.loadmat(file_path)
-
-    for key in data.keys():
-        normalized = key.lower().replace('_', '').replace(' ', '')
-        if normalized == "xdelta":
-            try:
-                value = float(np.squeeze(data[key]))
-                if value <= 0:
-                    continue
-                return value if value > 1 else 1.0 / value
-            except Exception:
-                continue
-    return None
+    """Extract sample rate from MAT file metadata"""
+    try:
+        # Try to extract from filename pattern
+        filename = os.path.basename(file_path)
+        if 'MHz' in filename:
+            # Look for pattern like "56MHz" or "56_MHz"
+            import re
+            match = re.search(r'(\d+(?:\.\d+)?)[_\s]*MHz', filename, re.IGNORECASE)
+            if match:
+                return float(match.group(1)) * 1e6
+        
+        # Try to load additional metadata if available
+        data = sio.loadmat(file_path)
+        if 'sample_rate' in data:
+            return float(data['sample_rate'])
+        elif 'fs' in data:
+            return float(data['fs'])
+        elif 'sr' in data:
+            return float(data['sr'])
+            
+        # Default fallback
+        print(f"Warning: Could not determine sample rate from {file_path}, using default 56MHz")
+        return 56e6
+        
+    except Exception as e:
+        print(f"Error reading sample rate from {file_path}: {e}")
+        return 56e6
 
 def load_packet(file_path):
-    """טוען פקטה מקובץ .mat ומחזיר תמיד np.complex64 או np.float32
-    תומך גם בקבצים שבהם המשתנה אינו Y, אלא משתנה בודד אחר.
-    """
-    data = sio.loadmat(file_path)
-    if 'Y' in data:
-        y = data['Y'].flatten()
-    else:
-        # חפש משתנה בודד שאינו פרטי (לא __header__ וכו')
-        candidates = [k for k in data.keys() if not k.startswith('__')]
-        if len(candidates) == 1:
-            y = data[candidates[0]].flatten()
+    """Load packet data from MAT file"""
+    try:
+        data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
+        
+        if 'Y' in data:
+            packet = data['Y']
         else:
-            raise ValueError(f"לא נמצא משתנה מתאים בקובץ {file_path}. משתנים קיימים: {list(data.keys())}")
-    # המרה לסוג מתאים
-    if np.iscomplexobj(y):
-        return y.astype(np.complex64)
-    else:
-        return y.astype(np.float32)
+            # Find the first non-metadata key
+            candidates = [k for k in data.keys() if not k.startswith('__')]
+            if len(candidates) == 1:
+                packet = data[candidates[0]]
+            else:
+                raise ValueError(f"Ambiguous packet data in {file_path}. Available keys: {list(data.keys())}")
+        
+        # Ensure packet is 1D
+        if packet.ndim > 1:
+            packet = packet.flatten()
+            
+        return packet.astype(np.complex64)
+        
+    except Exception as e:
+        print(f"Error loading packet from {file_path}: {e}")
+        raise
 
 def resample_signal(signal, orig_sr, target_sr):
-    """Resample גם לאותות קומפלקסיים וגם ריאליים"""
-    if np.iscomplexobj(signal):
-        real = librosa.resample(np.real(signal).astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
-        imag = librosa.resample(np.imag(signal).astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
-        return real + 1j * imag
-    else:
-        return librosa.resample(signal.astype(np.float32), orig_sr=orig_sr, target_sr=target_sr)
-
+    """Resample signal to target sample rate"""
+    if orig_sr == target_sr:
+        return signal
+    
+    # Calculate resampling ratio
+    ratio = target_sr / orig_sr
+    new_length = int(len(signal) * ratio)
+    
+    # Use scipy's resample for better quality
+    resampled = scipy.signal.resample(signal, new_length)
+    return resampled.astype(np.complex64)
 
 def apply_frequency_shift(signal, freq_shift, sample_rate):
-    """Apply a positive or negative frequency shift to the signal.
-
-    The returned array is always ``complex64`` to avoid dtype inflation when the
-    input is real.
-    """
+    """Apply frequency shift to signal using complex exponential multiplication"""
     if freq_shift == 0:
-        # Ensure a consistent complex dtype when no shift is requested
-        return signal.astype(np.complex64) if np.isrealobj(signal) else signal
-
-    t = np.arange(len(signal), dtype=np.float64) / sample_rate
-    shifted = signal.astype(np.complex64) * np.exp(2j * np.pi * freq_shift * t)
-    return shifted.astype(np.complex64)
-
+        return signal
+        
+    t = np.arange(len(signal)) / sample_rate
+    shift_factor = np.exp(2j * np.pi * freq_shift * t)
+    return (signal * shift_factor).astype(np.complex64)
 
 def compute_freq_ranges(shifts, margin=1e6):
-    """Return merged frequency ranges around each shift.
-
-    Parameters
-    ----------
-    shifts : list of float
-        The frequency shift values in Hz.
-    margin : float, optional
-        Extra bandwidth (Hz) to include around each shift.
-
-    Returns
-    -------
-    list of (float, float)
-        List of (start, end) ranges in Hz or ``None`` if no shifts.
     """
-    if not shifts:
+    Compute frequency ranges for plotting based on frequency shifts
+    
+    Args:
+        shifts: List of frequency shifts in Hz
+        margin: Additional margin around the frequency range in Hz
+    
+    Returns:
+        List of frequency ranges or None if no shifts
+    """
+    if not shifts or all(s == 0 for s in shifts):
         return None
-    values = sorted(set(shifts))
-    ranges = []
-    for freq in values:
-        start = freq - margin
-        end = freq + margin
-        if ranges and start <= ranges[-1][1]:
-            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
-        else:
-            ranges.append((start, end))
-    return ranges
+        
+    # Remove any non-numeric values
+    valid_shifts = []
+    for s in shifts:
+        if isinstance(s, (int, float)) and not isinstance(s, bool):
+            valid_shifts.append(s)
+    
+    if not valid_shifts:
+        return None
+    
+    min_shift = min(valid_shifts)
+    max_shift = max(valid_shifts)
+    
+    # Add margin
+    freq_min = min_shift - margin
+    freq_max = max_shift + margin
+    
+    return [(freq_min, freq_max)]
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
-    """יוצר ספקטוגרמה מהאות.
-
-    אם האות ארוך במיוחד, מתבצע דילול מהיר כדי להאיץ את החישוב.
-    """
-
+    """Creates high-resolution spectrogram from signal."""
+    if len(sig) == 0:
+        raise ValueError("Signal is empty")
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
@@ -128,13 +136,14 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         factor = 1
         fs = sr
 
-    window_size = 1024
-    overlap = window_size // 2
-    nfft = 1024
-    freqs, times, Sxx = signal.spectrogram(
+    window_size = min(8192, len(sig) // 4)      # Larger window for frequency precision
+    overlap = int(window_size * 0.9)            # 90% overlap for time continuity
+    nfft = 16384                                # More frequency bins (sharpness)
+
+    freqs, times, Sxx = scipy.signal.spectrogram(
         sig,
         fs=fs,
-        window='hann',
+        window='blackmanharris',                # Better sidelobe suppression
         nperseg=window_size,
         noverlap=overlap,
         nfft=nfft,
@@ -146,17 +155,20 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
     Sxx = np.fft.fftshift(Sxx, axes=0)
     return freqs, times, Sxx
 
-def normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99, max_dynamic_range=60):
-    """Normalize spectrogram values and compute display range.
 
-    Returns normalized Sxx in dB and suitable vmin/vmax for plotting."""
-    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-10)
-    Sxx_db -= np.max(Sxx_db)
+def normalize_spectrogram(Sxx, low_percentile=10, high_percentile=98, max_dynamic_range=60):
+    """Normalize spectrogram with clipping and dB scaling."""
+    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-12)
+
     vmin = np.percentile(Sxx_db, low_percentile)
     vmax = np.percentile(Sxx_db, high_percentile)
+
     if vmax - vmin > max_dynamic_range:
         vmin = vmax - max_dynamic_range
+
+    vmin = max(vmin, -100)  # Clip floor
     return Sxx_db, vmin, vmax
+
 
 def plot_spectrogram(
     f,
@@ -171,110 +183,58 @@ def plot_spectrogram(
     freq_ranges=None,
     show_colorbar=True,
 ):
-    """מציג ספקטוגרמה עם ציר תדר ב-MHz, עם אפשרות לסמן מיקומים של פקטות."""
+    """Plot sharp and clear spectrogram with enhancements."""
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    freq_axis = f / 1e6  # MHz
 
-    freq_axis = f / 1e6
+    fig, ax1 = plt.subplots(figsize=(12, 6)) if signal is None else plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    ax2 = None if signal is None else fig.axes[1]
 
-    # הגנה: ודא ש-freq_ranges הוא list של tuples
-    if freq_ranges:
-        try:
-            freq_ranges = list(freq_ranges)
-            freq_ranges = [tuple(fr) for fr in freq_ranges]
-        except Exception as e:
-            warnings.warn(f"freq_ranges לא תקין: {e}. תוצג כל הספקטרוגרמה.")
-            freq_ranges = None
-
-    # אם יש רק טווח אחד, אל תשתמש ב-brokenaxes
-    if freq_ranges and len(freq_ranges) == 1:
-        freq_ranges = None
-
-    if freq_ranges and len(freq_ranges) > 1:
-        try:
-            if brokenaxes is None:
-                warnings.warn(
-                    "brokenaxes is not installed; displaying full frequency range"
-                )
-                freq_ranges = None
-            else:
-                ylims = [(lo / 1e6, hi / 1e6) for lo, hi in freq_ranges]
-                fig = plt.figure(figsize=(12, 6))
-                ax1 = brokenaxes(ylims=ylims, hspace=0.05)
-                im = ax1.pcolormesh(
-                    t,
-                    freq_axis,
-                    Sxx_db,
-                    shading='nearest',
-                    cmap='viridis',
-                    norm=Normalize(vmin=vmin, vmax=vmax),
-                )
-        except Exception as e:
-            warnings.warn(f"שגיאה בשימוש ב-brokenaxes: {e}. תוצג כל הספקטרוגרמה.")
-            freq_ranges = None
-
-    if not freq_ranges:
-        if signal is not None:
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-        else:
-            fig, ax1 = plt.subplots(figsize=(12, 6))
-            ax2 = None
-        im = ax1.pcolormesh(
-            t,
-            freq_axis,
-            Sxx_db,
-            shading='nearest',
-            cmap='viridis',
-            norm=Normalize(vmin=vmin, vmax=vmax),
-        )
-        ax1.set_ylim(freq_axis.min(), freq_axis.max())
+    im = ax1.pcolormesh(
+        t,
+        freq_axis,
+        Sxx_db,
+        shading='gouraud',            # Smooth interpolation
+        cmap='inferno',               # High-contrast colormap
+        norm=Normalize(vmin=vmin, vmax=vmax),
+    )
 
     ax1.set_title(title)
     ax1.set_xlabel('Time [s]')
     ax1.set_ylabel('Frequency [MHz]')
+    ax1.set_ylim(freq_axis.min(), freq_axis.max())
     ax1.grid(True)
-    marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+
+    # Packet markers (optional)
     if packet_markers:
+        marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
         seen_labels = {}
         for idx, marker in enumerate(packet_markers):
-            if len(marker) >= 5:
-                tm, freq, label, style, color = marker[:5]
-            elif len(marker) == 4:
-                tm, freq, label, style = marker
-                color = f"C{idx % 10}"
-            elif len(marker) == 3:
-                tm, freq, label = marker
-                style = marker_styles[idx % len(marker_styles)]
-                color = f"C{idx % 10}"
-            else:
-                tm, freq = marker[:2]
-                label = None
-                style = marker_styles[idx % len(marker_styles)]
-                color = f"C{idx % 10}"
-            if label not in seen_labels:
-                show_label = label
-                seen_labels[label] = (style, color)
-            else:
-                show_label = "_nolegend_"
-                style, color = seen_labels[label]
+            tm, freq = marker[:2]
+            label = marker[2] if len(marker) > 2 else None
+            style = marker[3] if len(marker) > 3 else marker_styles[idx % len(marker_styles)]
+            color = marker[4] if len(marker) > 4 else f"C{idx % 10}"
+            show_label = label if label not in seen_labels else "_nolegend_"
+            seen_labels[label] = (style, color)
             ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
+
+    # Vertical packet start line
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
         ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
-    if show_colorbar:
-        if freq_ranges:
-            plt.colorbar(im[0], ax=ax1.axs, label='Power [dB]')
-        else:
-            plt.colorbar(im, ax=ax1, label='Power [dB]')
 
-    if signal is not None and not freq_ranges:
+    if show_colorbar:
+        plt.colorbar(im, ax=ax1, label='Power [dB]')
+
+    # Signal waveform below (optional)
+    if signal is not None:
         ax2.plot(np.abs(signal))
         if packet_start is not None:
             ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
-        ax2.set_title('Signal with Packet Start Marker')
+        ax2.set_title('Signal Amplitude')
         ax2.set_xlabel('Samples')
         ax2.set_ylabel('Amplitude')
         ax2.legend()
-        ax2.grid(True)
 
     if packet_markers:
         ax1.legend()
@@ -282,32 +242,33 @@ def plot_spectrogram(
     plt.tight_layout()
     plt.show()
 
+
 def save_vector(vector, output_path):
-    """שומר את הוקטור כקובץ .mat"""
+    """Save vector as MAT file"""
     sio.savemat(output_path, {'Y': vector})
 
 def save_vector_wv(vector, output_path, sample_rate, normalize=False):
-    """שומר את הוקטור כקובץ .wv באמצעות הסקריפט הקיים."""
+    """Save vector as WV file using existing script"""
     from vector_analyzer.mat_to_wv_converter import mat2wv
 
-    # mat2wv יודע לקבל ישירות numpy array
+    # mat2wv can accept numpy array directly
     mat2wv(vector, output_path, sample_rate, bNormalize=normalize)
 
 def generate_sample_packet(duration, sr, frequency, amplitude=1.0):
-    """יוצר פקטה לדוגמה"""
-    # np.linspace כולל כברירת מחדל את נקודת הסיום, מה שגורם לדגימה אחת
-    # נוספת מעבר למספר המצופה (sr * duration). שימוש ב-endpoint=False מבטיח
-    # שמספר הדגימות יהיה בדיוק sr * duration והמרווח ביניהן יהיה 1/sr.
+    """Generate sample packet for testing"""
+    # np.linspace includes endpoint by default, which causes one extra sample
+    # beyond the expected number (sr * duration). Using endpoint=False ensures
+    # the number of samples is exactly sr * duration and spacing is 1/sr.
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     signal = amplitude * np.exp(2j * np.pi * frequency * t)
     return signal
 
 def create_sample_packets():
-    """יוצר 6 פקטות לדוגמה"""
+    """Create 6 sample packets for testing"""
     sr = 44100  # Sample rate
-    duration = 1.0  # משך כל פקטה בשניות
+    duration = 1.0  # Duration of each packet in seconds
     
-    # יצירת 6 פקטות בתדרים שונים
+    # Create 6 packets with different frequencies
     frequencies = [440, 880, 1320, 1760, 2200, 2640]  # Hz
     packets = []
     
@@ -315,24 +276,25 @@ def create_sample_packets():
         packet = generate_sample_packet(duration, sr, freq)
         packets.append(packet)
         
-        # שמירת הפקטה
+        # Save packet
         sio.savemat(f'data/packet_{i+1}.mat', {'Y': packet})
     
     return packets 
 
 def find_packet_start(signal, template=None, threshold_ratio=0.2, window_size=None):
-    """מוצא את תחילת הפקטה באות.
+    """Find packet start in signal.
 
-    אם ניתנת תבנית, מתבצעת קורלציה ומחושב המיקום המתאים ביותר. אחרת
-    נבנה מעטפת אנרגיה מוחלקת ועל פיה נקבע מיקום תחילת הפקטה.``threshold_ratio``
-    מגדיר את העוצמה היחסית (בין רמת הרעש למקסימום) שמעליה נחשב שהחלה הפקטה.
+    If template is provided, correlation is performed and the best matching position is calculated.
+    Otherwise, a smoothed energy envelope is built and the packet start position is determined.
+    threshold_ratio defines the relative intensity (between noise level and maximum) above which
+    the packet is considered to have started.
     """
 
     if template is not None:
         correlation = np.correlate(np.abs(signal), np.abs(template), mode="valid")
         return int(np.argmax(correlation))
 
-    # מעטפת אנרגיה עם החלקה
+    # Energy envelope with smoothing
     energy = np.abs(signal) ** 2
     if window_size is None:
         window_size = max(1, int(0.02 * len(signal)))
@@ -348,20 +310,20 @@ def find_packet_start(signal, template=None, threshold_ratio=0.2, window_size=No
 
 def measure_packet_timing(signal, template=None):
     """
-    מודד את המרווחים לפני ואחרי הפקטה
+    Measure intervals before and after packet
     
     Args:
-        signal: האות המלא
-        template: תבנית החיפוש
+        signal: Full signal
+        template: Search template
     
     Returns:
-        pre_samples: מספר הסמפלים לפני הפקטה
-        post_samples: מספר הסמפלים אחרי הפקטה
-        packet_start: אינדקס תחילת הפקטה
+        pre_samples: Number of samples before packet
+        post_samples: Number of samples after packet
+        packet_start: Packet start index
     """
     packet_start = find_packet_start(signal, template)
     
-    # חישוב המרווחים
+    # Calculate intervals
     pre_samples = packet_start
     post_samples = len(signal) - packet_start - len(template) if template is not None else 0
     
@@ -369,7 +331,7 @@ def measure_packet_timing(signal, template=None):
 
 def plot_packet_with_markers(signal, packet_start, template=None, title='Packet Analysis'):
     """
-    מציג את הפקטה עם סימון של תחילת הפקטה האמיתית
+    Display packet with real packet start marker
     """
     plt.figure(figsize=(12, 6))
     plt.plot(np.abs(signal), label='Signal')
@@ -380,49 +342,100 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.xlabel('Samples')
     plt.ylabel('Amplitude')
     plt.legend()
-    plt.grid(True)
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
-    # הפוך את ציר התדרים והמטריצה לסדר יורד (חיובי משמאל, שלילי מימין)
+    # Reverse frequency axis and matrix to descending order (positive left, negative right)
     if f[0] < f[-1]:
         f = f[::-1]
         Sxx_db = Sxx_db[::-1, :]
 
-    # המרת ציר זמן למיליסקנד
+    # Convert time axis to milliseconds
     t_ms = t * 1000
     sample_indices = np.arange(len(signal))
     sample_times_ms = sample_indices / sample_rate * 1000
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    # Create maximized figure and subplots
+    plt.rcParams['figure.max_open_warning'] = 0  # Disable figure warning
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12), height_ratios=[3, 1])
+    plt.ioff(); plt.ion()  # Reset interactive mode
+    
+    manager = fig.canvas.manager
+    try:
+        # Try to maximize window on different backends
+        if hasattr(manager, 'window'):
+            if hasattr(manager.window, 'showMaximized'):
+                manager.window.showMaximized()
+            elif hasattr(manager.window, 'state'):
+                manager.window.state('zoomed')
+            elif hasattr(manager.window, 'wm_state'):
+                manager.window.wm_state('zoomed')
+        elif hasattr(manager, 'full_screen_toggle'):
+            manager.full_screen_toggle()
+        elif hasattr(manager, 'resize'):
+            # Try to get screen dimensions and resize
+            try:
+                import tkinter as tk
+                root = tk.Tk()
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+                root.destroy()
+                manager.resize(screen_width-100, screen_height-100)
+            except:
+                pass
+    except:
+        pass  # If maximization fails, continue with default size
+    
+    # Tight layout with minimal margins for maximum space usage
+    plt.subplots_adjust(bottom=0.12, top=0.96, left=0.06, right=0.98, hspace=0.3)
 
-    pcm = ax1.pcolormesh(t_ms, f/1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
+    pcm = ax1.pcolormesh(t_ms, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
     ax1.set_ylim(ax1.get_ylim()[::-1])
-    ax1.set_title('Spectrogram - drag the red line to adjust start')
-    ax1.set_xlabel('Time [ms]')
-    ax1.set_ylabel('Frequency [MHz]')
-    ax1.grid(True)
-    # קביעת שנתות כל 0.1ms
+    ax1.set_title("INSTRUCTIONS: Click and drag the orange line to adjust packet start position", fontsize=16, weight='bold')
+    ax1.set_xlabel('Time [ms]', fontsize=12)
+    ax1.set_ylabel('Frequency [MHz]', fontsize=12)
+    
+    # Adaptive resolution based on time range
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
+    time_range = max_t - min_t
+    
+    if time_range <= 10:  # Up to 10ms - 0.1ms resolution
+        tick_step = 0.1
+        multiplier = 10
+    elif time_range <= 50:  # Up to 50ms - 0.5ms resolution
+        tick_step = 0.5
+        multiplier = 2
+    elif time_range <= 200:  # Up to 200ms - 1ms resolution
+        tick_step = 1.0
+        multiplier = 1
+    elif time_range <= 1000:  # Up to 1 second - 5ms resolution
+        tick_step = 5.0
+        multiplier = 0.2
+    else:  # Over 1 second - 10ms resolution
+        tick_step = 10.0
+        multiplier = 0.1
+    
+    ax1.set_xticks(np.arange(np.floor(min_t*multiplier)/multiplier, np.ceil(max_t*multiplier)/multiplier + tick_step, tick_step))
 
     ax2.plot(sample_times_ms, np.abs(signal))
-    ax2.set_xlabel('Time [ms]')
-    ax2.set_ylabel('Amplitude')
-    ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
+    ax2.set_xlabel('Time [ms]', fontsize=12)
+    ax2.set_ylabel('Amplitude', fontsize=12)
+    
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*multiplier)/multiplier, np.ceil(sample_times_ms[-1]*multiplier)/multiplier + tick_step, tick_step))
 
-    # קו מקווקו ומדבקה
+    # Clear and prominent line
     packet_time_ms = packet_start / sample_rate * 1000
-    line1 = ax1.axvline(packet_time_ms, color='r', linestyle='--')
-    line2 = ax2.axvline(packet_time_ms, color='r', linestyle='--')
-    # תווית אופקית (annotation)
-    label = ax1.annotate(f"{packet_time_ms*1000:.0f} μs", xy=(packet_time_ms, ax1.get_ylim()[1]),
-                        xytext=(0, 5), textcoords='offset points', ha='center', va='bottom', color='red', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    line1 = ax1.axvline(packet_time_ms, color='orange', linestyle='-', linewidth=4, alpha=0.9)
+    line2 = ax2.axvline(packet_time_ms, color='orange', linestyle='-', linewidth=4, alpha=0.9)
+    
+    # Large and clear label
+    label = ax1.annotate(f"PACKET START\n{packet_time_ms*1000:.0f} us", xy=(packet_time_ms, ax1.get_ylim()[1]),
+                        xytext=(0, 10), textcoords='offset points', ha='center', va='bottom', 
+                        color='orange', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='orange'))
 
     state = {'drag': False, 'value': packet_start}
 
@@ -444,9 +457,9 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
         packet_time_ms = x_sample / sample_rate * 1000
         line1.set_xdata([packet_time_ms, packet_time_ms])
         line2.set_xdata([packet_time_ms, packet_time_ms])
-        # עדכון תווית
+        # Update label
         label.set_position((packet_time_ms, ax1.get_ylim()[1]))
-        label.set_text(f"{packet_time_ms*1000:.0f} μs")
+        label.set_text(f"PACKET START\n{packet_time_ms*1000:.0f} us")
         fig.canvas.draw_idle()
 
     def _release(event):
@@ -457,7 +470,22 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
     cid_rel = fig.canvas.mpl_connect('button_release_event', _release)
 
     plt.tight_layout()
-    plt.show()
+    print("\n" + "="*50)
+    print("INTERACTIVE WINDOW OPENED")
+    print("Instructions:")
+    print("1. Click and drag the orange line")
+    print("2. Close window when done")
+    print("="*50)
+    
+    # Show and wait for user interaction
+    plt.show(block=True)
+    
+    # Wait for window to be closed
+    try:
+        while plt.get_fignums():
+            plt.pause(0.1)
+    except:
+        pass
 
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
@@ -472,6 +500,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     f, t, Sxx = create_spectrogram(signal, sample_rate)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
+    # Reverse frequency axis and matrix to descending order (positive left, negative right)
     if f[0] < f[-1]:
         f = f[::-1]
         Sxx_db = Sxx_db[::-1, :]
@@ -480,44 +509,102 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     sample_indices = np.arange(len(signal))
     sample_times_ms = sample_indices / sample_rate * 1000
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-    plt.subplots_adjust(bottom=0.18)  # מקום לכפתורים
+    # Create maximized figure and subplots
+    plt.rcParams['figure.max_open_warning'] = 0  # Disable figure warning
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12), height_ratios=[3, 1])
+    plt.ioff(); plt.ion()  # Reset interactive mode
+    
+    manager = fig.canvas.manager
+    try:
+        # Try to maximize window on different backends
+        if hasattr(manager, 'window'):
+            if hasattr(manager.window, 'showMaximized'):
+                manager.window.showMaximized()
+            elif hasattr(manager.window, 'state'):
+                manager.window.state('zoomed')
+            elif hasattr(manager.window, 'wm_state'):
+                manager.window.wm_state('zoomed')
+        elif hasattr(manager, 'full_screen_toggle'):
+            manager.full_screen_toggle()
+        elif hasattr(manager, 'resize'):
+            # Try to get screen dimensions and resize
+            try:
+                import tkinter as tk
+                root = tk.Tk()
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+                root.destroy()
+                manager.resize(screen_width-100, screen_height-100)
+            except:
+                pass
+    except:
+        pass  # If maximization fails, continue with default size
+    
+    # Tight layout with minimal margins for maximum space usage
+    plt.subplots_adjust(bottom=0.12, top=0.96, left=0.06, right=0.98, hspace=0.3)
 
     pcm = ax1.pcolormesh(t_ms, f / 1e6, Sxx_db, shading='nearest', cmap='viridis', vmin=vmin, vmax=vmax)
     ax1.set_ylim(ax1.get_ylim()[::-1])
-    ax1.set_title("Use 'g'/'r' to select a line, drag to move, Enter to finish")
-    ax1.set_xlabel('Time [ms]')
-    ax1.set_ylabel('Frequency [MHz]')
-    ax1.grid(True)
+    ax1.set_title("INSTRUCTIONS: Click 'g' for green line, 'r' for red line. Click and drag to move. Press Enter to finish.", fontsize=16, weight='bold')
+    ax1.set_xlabel('Time [ms]', fontsize=12)
+    ax1.set_ylabel('Frequency [MHz]', fontsize=12)
+    
+    # Adaptive resolution based on time range
     min_t, max_t = t_ms[0], t_ms[-1]
-    ax1.set_xticks(np.arange(np.floor(min_t*10)/10, np.ceil(max_t*10)/10 + 0.1, 0.1))
+    time_range = max_t - min_t
+    
+    if time_range <= 10:  # Up to 10ms - 0.1ms resolution
+        tick_step = 0.1
+        multiplier = 10
+    elif time_range <= 50:  # Up to 50ms - 0.5ms resolution
+        tick_step = 0.5
+        multiplier = 2
+    elif time_range <= 200:  # Up to 200ms - 1ms resolution
+        tick_step = 1.0
+        multiplier = 1
+    elif time_range <= 1000:  # Up to 1 second - 5ms resolution
+        tick_step = 5.0
+        multiplier = 0.2
+    else:  # Over 1 second - 10ms resolution
+        tick_step = 10.0
+        multiplier = 0.1
+    
+    ax1.set_xticks(np.arange(np.floor(min_t*multiplier)/multiplier, np.ceil(max_t*multiplier)/multiplier + tick_step, tick_step))
 
     ax2.plot(sample_times_ms, np.abs(signal))
-    ax2.set_xlabel('Time [ms]')
-    ax2.set_ylabel('Amplitude')
-    ax2.grid(True)
-    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*10)/10, np.ceil(sample_times_ms[-1]*10)/10 + 0.1, 0.1))
+    ax2.set_xlabel('Time [ms]', fontsize=12)
+    ax2.set_ylabel('Amplitude', fontsize=12)
+    
+    ax2.set_xticks(np.arange(np.floor(sample_times_ms[0]*multiplier)/multiplier, np.ceil(sample_times_ms[-1]*multiplier)/multiplier + tick_step, tick_step))
 
     start_time_ms = start_sample / sample_rate * 1000
     end_time_ms = end_sample / sample_rate * 1000
-    start_line1 = ax1.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
-    end_line1 = ax1.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
-    start_line2 = ax2.axvline(start_time_ms, color='g', linestyle='--', linewidth=2)
-    end_line2 = ax2.axvline(end_time_ms, color='r', linestyle='--', linewidth=1)
-    # תוויות אופקיות
-    label_start = ax1.annotate(f"{start_time_ms*1000:.0f} μs", xy=(start_time_ms, ax1.get_ylim()[0]),
-                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='green', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
-    label_end = ax1.annotate(f"{end_time_ms*1000:.0f} μs", xy=(end_time_ms, ax1.get_ylim()[0]),
-                        xytext=(0, -18), textcoords='offset points', ha='center', va='top', color='red', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+    
+    # Thick and colorful lines for better visibility
+    start_line1 = ax1.axvline(start_time_ms, color='lime', linestyle='-', linewidth=3, alpha=0.8)
+    end_line1 = ax1.axvline(end_time_ms, color='red', linestyle='-', linewidth=3, alpha=0.8)
+    start_line2 = ax2.axvline(start_time_ms, color='lime', linestyle='-', linewidth=3, alpha=0.8)
+    end_line2 = ax2.axvline(end_time_ms, color='red', linestyle='-', linewidth=3, alpha=0.8)
+    
+    # Large and clear labels
+    label_start = ax1.annotate(f"START\n{start_time_ms*1000:.0f} us", xy=(start_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -25), textcoords='offset points', ha='center', va='top', 
+                        color='lime', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='lime'))
+    label_end = ax1.annotate(f"END\n{end_time_ms*1000:.0f} us", xy=(end_time_ms, ax1.get_ylim()[0]),
+                        xytext=(0, -25), textcoords='offset points', ha='center', va='top', 
+                        color='red', fontsize=12, weight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='black', alpha=0.8, edgecolor='red'))
     
     state = {'drag': None, 'active': 'start', 'start': start_sample, 'end': end_sample}
-    # תווית מרווח (מעל הפינה הימנית העליונה)
+    
+    # Enlarged and clear packet length label
     def get_delta_us():
         return abs((state['end'] - state['start']) / sample_rate * 1e6)
     delta_us = get_delta_us()
-    delta_label = ax1.annotate(f"Δ: {delta_us:.0f} μs", xy=(1, 1.08), xycoords='axes fraction', ha='right', va='bottom', fontsize=14, color='blue', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+    delta_label = ax1.annotate(f"PACKET LENGTH\nΔ: {delta_us:.0f} us", xy=(1, 1.12), xycoords='axes fraction', 
+                              ha='right', va='bottom', fontsize=14, weight='bold', color='white',
+                              bbox=dict(boxstyle='round,pad=0.5', fc='blue', alpha=0.9, edgecolor='white'))
 
     def update_lines_and_labels():
         start_time_ms = state['start'] / sample_rate * 1000
@@ -526,26 +613,35 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
         end_line1.set_xdata([end_time_ms, end_time_ms])
         start_line2.set_xdata([start_time_ms, start_time_ms])
         end_line2.set_xdata([end_time_ms, end_time_ms])
-        # עדכון תוויות הזמן לראש הקו (y התחתון)
+        
+        # Update time labels
         y_bottom = ax1.get_ylim()[0]
         label_start.set_position((start_time_ms, y_bottom))
-        label_start.set_text(f"{start_time_ms*1000:.0f} μs")
+        label_start.set_text(f"START\n{start_time_ms*1000:.0f} us")
         label_end.set_position((end_time_ms, y_bottom))
-        label_end.set_text(f"{end_time_ms*1000:.0f} μs")
-        # עדכון תווית המרווח
+        label_end.set_text(f"END\n{end_time_ms*1000:.0f} us")
+        
+        # Update delta label
         delta_us = get_delta_us()
-        delta_label.set_text(f"Δ: {delta_us:.0f} μs")
+        delta_label.set_text(f"PACKET LENGTH\nΔ: {delta_us:.0f} us")
+        
+        # Highlight active line
+        if state['active'] == 'start':
+            start_line1.set_linewidth(4)
+            start_line2.set_linewidth(4)
+            end_line1.set_linewidth(2)
+            end_line2.set_linewidth(2)
+        else:
+            start_line1.set_linewidth(2)
+            start_line2.set_linewidth(2)
+            end_line1.set_linewidth(4)
+            end_line2.set_linewidth(4)
+            
         fig.canvas.draw_idle()
 
     def _select(which):
         state['active'] = which
-        start_lw = 2 if which == 'start' else 1
-        end_lw = 2 if which == 'end' else 1
-        start_line1.set_linewidth(start_lw)
-        start_line2.set_linewidth(start_lw)
-        end_line1.set_linewidth(end_lw)
-        end_line2.set_linewidth(end_lw)
-        fig.canvas.draw_idle()
+        update_lines_and_labels()
 
     _select('start')
 
@@ -577,11 +673,16 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     def _release(event):
         state['drag'] = None
 
-    # כפתורי הזזה - מיקום חדש במרכז מתחת לגרף התחתון
-    axprev = plt.axes([0.42, 0.01, 0.07, 0.05])
-    axnext = plt.axes([0.51, 0.01, 0.07, 0.05])
-    bprev = Button(axprev, '<< 1μs')
-    bnext = Button(axnext, '1μs >>')
+    # Fine adjustment buttons - now with 0.1us movement for high precision
+    axprev = plt.axes([0.35, 0.01, 0.08, 0.05])
+    axnext = plt.axes([0.44, 0.01, 0.08, 0.05])
+    axprev_fine = plt.axes([0.53, 0.01, 0.08, 0.05])
+    axnext_fine = plt.axes([0.62, 0.01, 0.08, 0.05])
+    
+    bprev = Button(axprev, '<< 1us')
+    bnext = Button(axnext, '1us >>')
+    bprev_fine = Button(axprev_fine, '<< 0.1us')
+    bnext_fine = Button(axnext_fine, '0.1us >>')
 
     def move_line(delta_us):
         delta_samples = int(round(delta_us * sample_rate / 1e6))
@@ -593,6 +694,8 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
 
     bprev.on_clicked(lambda event: move_line(-1))
     bnext.on_clicked(lambda event: move_line(1))
+    bprev_fine.on_clicked(lambda event: move_line(-0.1))
+    bnext_fine.on_clicked(lambda event: move_line(0.1))
 
     cid_press = fig.canvas.mpl_connect('button_press_event', _press)
     cid_move = fig.canvas.mpl_connect('motion_notify_event', _move)
@@ -608,7 +711,25 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     )
 
     plt.tight_layout()
-    plt.show()
+    print("\n" + "="*60)
+    print("INTERACTIVE WINDOW OPENED")
+    print("Instructions:")
+    print("1. Press 'g' to select green START line")
+    print("2. Press 'r' to select red END line") 
+    print("3. Click and drag to move the selected line")
+    print("4. Use buttons for fine adjustment")
+    print("5. Press Enter to finish and close")
+    print("="*60)
+    
+    # Show and wait for user interaction
+    plt.show(block=True)
+    
+    # Wait for window to be closed
+    try:
+        while plt.get_fignums():
+            plt.pause(0.1)
+    except:
+        pass
 
     fig.canvas.mpl_disconnect(cid_press)
     fig.canvas.mpl_disconnect(cid_move)
