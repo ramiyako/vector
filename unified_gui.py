@@ -21,7 +21,9 @@ from utils import (
     create_spectrogram,
     normalize_spectrogram,
     save_vector,
-    save_vector_wv
+    save_vector_wv,
+    detect_packet_bounds,
+    load_packet_info
 )
 
 # Modern theme configuration
@@ -354,11 +356,19 @@ class ModernPacketExtractor:
             
         try:
             sample_rate = self.sample_rate
+            if self.start_sample is None or self.end_sample is None:
+                start_det, end_det = detect_packet_bounds(self.signal, sample_rate)
+                buffer_samples = int(sample_rate // 1_000_000)
+                start = max(0, start_det - buffer_samples)
+                self.start_sample, self.end_sample = start, end_det
+                self.detected_start = start_det
+                self._pre_buffer = buffer_samples
+
             self.start_sample, self.end_sample = adjust_packet_bounds_gui(
                 self.signal,
                 sample_rate,
-                self.start_sample or 0,
-                self.end_sample or len(self.signal),
+                self.start_sample,
+                self.end_sample,
             )
             
             # Validate bounds
@@ -399,14 +409,15 @@ class ModernPacketExtractor:
                 'sample_rate': sample_rate,
                 'start_sample': self.start_sample,
                 'end_sample': self.end_sample,
-                'file_path': file_path
+                'file_path': file_path,
+                'pre_samples': int(getattr(self, 'detected_start', self.start_sample) - self.start_sample)
             }
             
             # Create data directory if it doesn't exist
             os.makedirs("data", exist_ok=True)
             
             # Save to file
-            sio.savemat(packet_info['file_path'], {'Y': packet})
+            sio.savemat(packet_info['file_path'], {'Y': packet, 'pre_samples': packet_info['pre_samples']})
             print(f"Packet saved to {packet_info['file_path']}")
             
             # Add to list
@@ -839,7 +850,7 @@ class UnifiedVectorApp:
                 print(f"Processing packet {idx+1}: {os.path.basename(cfg['file'])}")
                 
                 # Fast packet loading
-                y = load_packet(cfg['file'])
+                y, pre_buf = load_packet_info(cfg['file'])
                 base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
                 if base_name not in style_map:
                     idx_style = len(style_map) % len(marker_styles)
@@ -862,7 +873,7 @@ class UnifiedVectorApp:
                     return
 
                 # Time offset of first insertion in samples relative to start of vector
-                start_offset = int(round(cfg['start_time'] * TARGET_SAMPLE_RATE))
+                start_offset = max(0, int(round(cfg['start_time'] * TARGET_SAMPLE_RATE)) - pre_buf)
 
                 # Insert packet instances with correct timing
                 current_pos = start_offset
@@ -873,7 +884,7 @@ class UnifiedVectorApp:
                     vector[current_pos:end_pos] += y
                     
                     # Add marker for this instance - convert sample position to time in seconds
-                    marker_time = current_pos / TARGET_SAMPLE_RATE
+                    marker_time = (current_pos + pre_buf) / TARGET_SAMPLE_RATE
                     markers.append((marker_time, cfg['freq_shift'], base_name, marker_style, marker_color))
                     
                     instance_count += 1

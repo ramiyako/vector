@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog, ttk
 from utils import get_sample_rate_from_mat, adjust_packet_bounds_gui
+from utils import detect_packet_bounds
 
 class PacketExtractor:
     def __init__(self):
@@ -82,11 +83,19 @@ class PacketExtractor:
             
         try:
             sample_rate = self.sample_rate
+            if self.start_sample is None or self.end_sample is None:
+                start_det, end_det = detect_packet_bounds(self.signal, sample_rate)
+                buffer_samples = int(sample_rate // 1_000_000)
+                start = max(0, start_det - buffer_samples)
+                self.start_sample, self.end_sample = start, end_det
+                self.detected_start = start_det
+                self._pre_buffer = buffer_samples
+
             self.start_sample, self.end_sample = adjust_packet_bounds_gui(
                 self.signal,
                 sample_rate,
-                self.start_sample or 0,
-                self.end_sample or len(self.signal),
+                self.start_sample,
+                self.end_sample,
             )
             self.start_var.set(str(self.start_sample))
             self.end_var.set(str(self.end_sample))
@@ -101,6 +110,7 @@ class PacketExtractor:
         try:
             # חיתוך הפקטה
             packet = self.signal[self.start_sample:self.end_sample]
+            pre_samples = int(getattr(self, 'detected_start', self.start_sample) - self.start_sample)
             
             # שמירת הפקטה
             file_path = filedialog.asksaveasfilename(
@@ -110,7 +120,7 @@ class PacketExtractor:
             )
             
             if file_path:
-                sio.savemat(file_path, {'Y': packet})
+                sio.savemat(file_path, {'Y': packet, 'pre_samples': pre_samples})
                 tk.messagebox.showinfo("הצלחה", "הפקטה נשמרה בהצלחה")
                 
         except Exception as e:

@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, BooleanVar
 from utils import (
     load_packet,
+    load_packet_info,
     resample_signal,
     create_spectrogram,
     plot_spectrogram,
@@ -223,7 +224,7 @@ class VectorApp:
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
-                y = load_packet(cfg['file'])
+                y, pre_buf = load_packet_info(cfg['file'])
                 base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
                 if base_name not in style_map:
                     idx_style = len(style_map) % len(marker_styles)
@@ -246,7 +247,7 @@ class VectorApp:
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
 
                 # Time offset of first insertion in samples relative to start of vector
-                start_offset = int(round(cfg['start_time'] * TARGET_SAMPLE_RATE))
+                start_offset = max(0, int(round(cfg['start_time'] * TARGET_SAMPLE_RATE)) - pre_buf)
 
                 # Insert packet at the specified offset and every period thereafter
                 for start in range(start_offset, total_samples, period_samples):
@@ -256,7 +257,7 @@ class VectorApp:
                     vector[start:end] += y
                     markers.append(
                         (
-                            start / TARGET_SAMPLE_RATE,
+                            (start + pre_buf) / TARGET_SAMPLE_RATE,
                             cfg['freq_shift'],
                             base_name,
                             marker_style,

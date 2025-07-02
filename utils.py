@@ -70,6 +70,24 @@ def load_packet(file_path):
         print(f"Error loading packet from {file_path}: {e}")
         raise
 
+def load_packet_info(file_path):
+    """Load packet data and pre-buffer info from MAT file."""
+    data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
+    if 'Y' in data:
+        packet = data['Y']
+    else:
+        candidates = [k for k in data.keys() if not k.startswith('__')]
+        if len(candidates) == 1:
+            packet = data[candidates[0]]
+        else:
+            raise ValueError(f"Ambiguous packet data in {file_path}. Available keys: {list(data.keys())}")
+
+    if packet.ndim > 1:
+        packet = packet.flatten()
+
+    pre = int(data.get('pre_samples', 0))
+    return packet.astype(np.complex64), pre
+
 def resample_signal(signal, orig_sr, target_sr):
     """Resample signal to target sample rate"""
     if orig_sr == target_sr:
@@ -307,6 +325,22 @@ def find_packet_start(signal, template=None, threshold_ratio=0.2, window_size=No
 
     indices = np.where(smoothed >= threshold)[0]
     return int(indices[0]) if len(indices) > 0 else 0
+
+def detect_packet_bounds(signal, sample_rate, threshold_ratio=0.2):
+    """Detect packet start and end with microsecond resolution."""
+    energy = np.abs(signal) ** 2
+    window = max(1, int(sample_rate // 1_000_000))  # 1 us smoothing window
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(energy, kernel, mode="same")
+    noise = np.median(smoothed[: max(1, len(smoothed) // 10)])
+    max_en = smoothed.max()
+    threshold = noise + threshold_ratio * (max_en - noise)
+    indices = np.where(smoothed >= threshold)[0]
+    if len(indices) == 0:
+        return 0, len(signal)
+    start = indices[0]
+    end = indices[-1]
+    return start, end
 
 def measure_packet_timing(signal, template=None):
     """
