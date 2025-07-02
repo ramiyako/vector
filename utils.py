@@ -142,8 +142,8 @@ def compute_freq_ranges(shifts, margin=1e6):
     
     return [(freq_min, freq_max)]
 
-def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000, time_resolution_us=10):
-    """Creates high-resolution spectrogram from signal.
+def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resolution_us=1, adaptive_resolution=True):
+    """Creates ultra-high-resolution spectrogram from signal for detailed packet analysis.
 
     Parameters
     ----------
@@ -154,12 +154,16 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000, time_resol
     center_freq : float, optional
         Center frequency for shifting the axis.
     max_samples : int, optional
-        Downsample if signal is longer than this.
+        Downsample if signal is longer than this. Increased to 2M for better detail.
     time_resolution_us : float, optional
-        Desired time resolution in microseconds. Defaults to 10us.
+        Desired time resolution in microseconds. Defaults to 1us for fine detail.
+    adaptive_resolution : bool, optional
+        Enable adaptive resolution based on signal characteristics. Default True.
     """
     if len(sig) == 0:
         raise ValueError("Signal is empty")
+    
+    # Preserve more data for better resolution
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
@@ -168,35 +172,75 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000, time_resol
         factor = 1
         fs = sr
 
-    window_size = min(8192, len(sig) // 4)      # Base window for frequency precision
+    if adaptive_resolution:
+        # Adaptive resolution based on signal length and sample rate
+        signal_duration_us = len(sig) / fs * 1e6
+        
+        if signal_duration_us <= 50:  # Very short signals (≤50μs) - maximum resolution
+            base_window = min(16384, len(sig) // 2)
+            time_resolution_us = min(time_resolution_us, 0.5)
+            freq_resolution_factor = 4
+        elif signal_duration_us <= 500:  # Short signals (≤500μs) - high resolution  
+            base_window = min(12288, len(sig) // 3)
+            time_resolution_us = min(time_resolution_us, 1)
+            freq_resolution_factor = 3
+        elif signal_duration_us <= 5000:  # Medium signals (≤5ms) - good resolution
+            base_window = min(8192, len(sig) // 4)
+            time_resolution_us = min(time_resolution_us, 2)
+            freq_resolution_factor = 2
+        else:  # Long signals (>5ms) - balanced resolution
+            base_window = min(4096, len(sig) // 6)
+            time_resolution_us = min(time_resolution_us, 5)
+            freq_resolution_factor = 1.5
+    else:
+        # Fixed high resolution settings
+        base_window = min(8192, len(sig) // 4)
+        freq_resolution_factor = 2
 
+    # Calculate optimal window size based on time resolution
     if time_resolution_us is not None:
         step_samples = max(1, int(round(fs * time_resolution_us / 1e6)))
-        if window_size < step_samples:
-            window_size = step_samples
-        overlap = window_size - step_samples
+        # Ensure window is large enough for the step size and good frequency resolution
+        min_window_for_step = step_samples * 4  # At least 4x step for good overlap
+        min_window_for_freq = int(fs / 1000)    # At least 1ms window for frequency resolution
+        window_size = max(base_window, min_window_for_step, min_window_for_freq)
+        
+        # Ensure window doesn't exceed signal length
+        window_size = min(window_size, len(sig))
+        
+        # Calculate overlap for desired time resolution
+        overlap = max(0, window_size - step_samples)
     else:
-        overlap = int(window_size * 0.9)            # 90% overlap for time continuity
+        window_size = base_window
+        overlap = int(window_size * 0.95)  # Very high overlap for smooth time representation
 
-    nfft = max(16384, 2 ** int(np.ceil(np.log2(window_size * 2))))
+    # Enhanced NFFT for better frequency resolution
+    nfft = max(32768, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
+    
+    # Ensure minimum NFFT for good frequency resolution
+    nfft = max(nfft, 16384)
 
+    # Use Blackman-Harris window for best spectral clarity
     freqs, times, Sxx = scipy.signal.spectrogram(
         sig,
         fs=fs,
-        window='blackmanharris',                # Better sidelobe suppression
+        window='blackmanharris',     # Excellent sidelobe suppression for clear spectral lines
         nperseg=window_size,
         noverlap=overlap,
         nfft=nfft,
         return_onesided=False,
-        detrend=False
+        detrend='constant',          # Remove DC component for cleaner display
+        scaling='density'            # Power spectral density for better dynamic range
     )
 
+    # Proper frequency shifting and centering
     freqs = np.fft.fftshift(freqs) * factor + center_freq
     Sxx = np.fft.fftshift(Sxx, axes=0)
+    
     return freqs, times, Sxx
 
 
-def normalize_spectrogram(Sxx, low_percentile=10, high_percentile=98, max_dynamic_range=60):
+def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=98.0, max_dynamic_range=60):
     """Normalize spectrogram with clipping and dB scaling."""
     Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-12)
 
@@ -215,71 +259,138 @@ def plot_spectrogram(
     t,
     Sxx,
     center_freq=0,
-    title='Spectrogram',
+    title='High-Resolution Spectrogram',
     packet_start=None,
     sample_rate=None,
     signal=None,
     packet_markers=None,
     freq_ranges=None,
     show_colorbar=True,
+    enhance_contrast=True,
+    high_detail_mode=True,
 ):
-    """Plot sharp and clear spectrogram with enhancements."""
-    Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    """Plot ultra-sharp and detailed spectrogram with advanced enhancements for packet analysis."""
+    if enhance_contrast:
+        # Enhanced normalization for better packet detail visibility
+        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99.5, max_dynamic_range=80)
+    else:
+        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    
     freq_axis = f / 1e6  # MHz
 
-    fig, ax1 = plt.subplots(figsize=(12, 6)) if signal is None else plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-    ax2 = None if signal is None else fig.axes[1]
+    # Create figure with higher DPI for crisp display
+    if signal is None:
+        fig, ax1 = plt.subplots(figsize=(16, 8), dpi=100)
+        ax2 = None
+    else:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), height_ratios=[3, 1], dpi=100)
+
+    # Enhanced visualization parameters for high-resolution data
+    if high_detail_mode:
+        # Use 'nearest' for pixel-perfect display of high-resolution data
+        shading_method = 'nearest'
+        # Enhanced colormap with better contrast for packet analysis
+        colormap = 'turbo'  # Better than inferno for distinguishing fine details
+        interpolation = 'none'  # No interpolation for crisp edges
+    else:
+        shading_method = 'gouraud'
+        colormap = 'inferno'
+        interpolation = 'bilinear'
 
     im = ax1.pcolormesh(
         t,
         freq_axis,
         Sxx_db,
-        shading='gouraud',            # Smooth interpolation
-        cmap='inferno',               # High-contrast colormap
+        shading=shading_method,
+        cmap=colormap,
         norm=Normalize(vmin=vmin, vmax=vmax),
+        rasterized=True,  # Better performance for high-resolution plots
     )
 
-    ax1.set_title(title)
-    ax1.set_xlabel('Time [s]')
-    ax1.set_ylabel('Frequency [MHz]')
+    ax1.set_title(title, fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Time [s]', fontsize=12)
+    ax1.set_ylabel('Frequency [MHz]', fontsize=12)
     ax1.set_ylim(freq_axis.min(), freq_axis.max())
-    ax1.grid(True)
+    
+    # Enhanced grid for better readability
+    ax1.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+    ax1.minorticks_on()
+    ax1.grid(True, which='minor', alpha=0.1, linestyle=':', linewidth=0.3)
 
-    # Packet markers (optional)
+    # Enhanced packet markers with better visibility
     if packet_markers:
-        marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '1', '2', '3', '4']
+        marker_styles = ['x', 'o', '^', 's', 'D', 'P', 'v', '<', '>', '1', '2', '3', '4']
+        marker_colors = ['red', 'cyan', 'yellow', 'lime', 'magenta', 'orange', 'white', 'pink']
         seen_labels = {}
         for idx, marker in enumerate(packet_markers):
             tm, freq = marker[:2]
-            label = marker[2] if len(marker) > 2 else None
+            label = marker[2] if len(marker) > 2 else f'Marker {idx+1}'
             style = marker[3] if len(marker) > 3 else marker_styles[idx % len(marker_styles)]
-            color = marker[4] if len(marker) > 4 else f"C{idx % 10}"
+            color = marker[4] if len(marker) > 4 else marker_colors[idx % len(marker_colors)]
             show_label = label if label not in seen_labels else "_nolegend_"
             seen_labels[label] = (style, color)
-            ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, label=show_label)
+            ax1.plot(tm, freq / 1e6, linestyle='None', marker=style, color=color, 
+                    label=show_label, markersize=8, markeredgewidth=2, markeredgecolor='black')
 
-    # Vertical packet start line
+    # Enhanced vertical packet start line
     if packet_start is not None and sample_rate is not None:
         packet_time = packet_start / sample_rate
-        ax1.axvline(x=packet_time, color='r', linestyle='--', label='Packet Start')
+        ax1.axvline(x=packet_time, color='lime', linestyle='-', linewidth=3, 
+                   alpha=0.8, label='Packet Start')
 
+    # Enhanced colorbar with better formatting
     if show_colorbar:
-        plt.colorbar(im, ax=ax1, label='Power [dB]')
+        cbar = plt.colorbar(im, ax=ax1, label='Power Spectral Density [dB/Hz]', shrink=0.8)
+        cbar.ax.tick_params(labelsize=10)
 
-    # Signal waveform below (optional)
-    if signal is not None:
-        ax2.plot(np.abs(signal))
+    # Enhanced signal waveform display
+    if signal is not None and ax2 is not None:
+        # Plot both magnitude and phase for complex signals
+        time_axis = np.arange(len(signal)) / sample_rate if sample_rate else np.arange(len(signal))
+        
+        # Primary plot: magnitude
+        ax2.plot(time_axis, np.abs(signal), 'b-', linewidth=1, label='Magnitude', alpha=0.8)
+        
+        # Secondary plot: phase (if signal is complex)
+        if np.iscomplexobj(signal):
+            ax2_phase = ax2.twinx()
+            ax2_phase.plot(time_axis, np.angle(signal), 'r-', linewidth=0.8, alpha=0.6, label='Phase')
+            ax2_phase.set_ylabel('Phase [rad]', fontsize=10, color='red')
+            ax2_phase.tick_params(axis='y', labelcolor='red', labelsize=9)
+            ax2_phase.set_ylim(-np.pi, np.pi)
+        
         if packet_start is not None:
-            ax2.axvline(x=packet_start, color='r', linestyle='--', label='Packet Start')
-        ax2.set_title('Signal Amplitude')
-        ax2.set_xlabel('Samples')
-        ax2.set_ylabel('Amplitude')
-        ax2.legend()
+            packet_time = packet_start / sample_rate if sample_rate else packet_start
+            ax2.axvline(x=packet_time, color='lime', linestyle='-', linewidth=3, 
+                       alpha=0.8, label='Packet Start')
+        
+        ax2.set_title('Signal Time Domain', fontsize=12, fontweight='bold')
+        ax2.set_xlabel('Time [s]' if sample_rate else 'Samples', fontsize=10)
+        ax2.set_ylabel('Magnitude', fontsize=10)
+        ax2.grid(True, alpha=0.3)
+        ax2.legend(fontsize=9)
 
-    if packet_markers:
-        ax1.legend()
+    # Enhanced frequency range indicators
+    if freq_ranges:
+        for i, (fmin, fmax) in enumerate(freq_ranges):
+            ax1.axhspan(fmin/1e6, fmax/1e6, alpha=0.2, color=f'C{i%10}', 
+                       label=f'Range {i+1}: {fmin/1e6:.1f}-{fmax/1e6:.1f} MHz')
 
-    plt.tight_layout()
+    if packet_markers or freq_ranges:
+        ax1.legend(fontsize=10, loc='upper right')
+
+    # Tight layout with optimized spacing
+    plt.tight_layout(pad=1.5)
+    
+    # Add text annotation with resolution info
+    if hasattr(t, '__len__') and len(t) > 1:
+        time_res_us = (t[1] - t[0]) * 1e6
+        freq_res_khz = (f[1] - f[0]) / 1e3 if len(f) > 1 else 0
+        resolution_text = f'Time res: {time_res_us:.2f}μs, Freq res: {freq_res_khz:.2f}kHz'
+        ax1.text(0.02, 0.98, resolution_text, transform=ax1.transAxes, 
+                fontsize=9, verticalalignment='top', horizontalalignment='left',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+    
     plt.show()
 
 
@@ -401,7 +512,7 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
-    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=10)
+    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=1)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     # Reverse frequency axis and matrix to descending order (positive left, negative right)
@@ -553,7 +664,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     if end_sample is None:
         end_sample = len(signal)
 
-    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=10)
+    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=1)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     # Reverse frequency axis and matrix to descending order (positive left, negative right)
