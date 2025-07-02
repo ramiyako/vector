@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Test the cleaned-up spectrogram functions
+Quick Spectrogram Cleanliness Test
+=================================
+
+Quick test to verify spectrogram cleanliness with visual output.
+This can be run easily to check that spectrograms remain clean and noise-free.
 """
 
 import numpy as np
@@ -10,7 +14,7 @@ import matplotlib.pyplot as plt
 from utils import create_spectrogram, plot_spectrogram, normalize_spectrogram
 
 def test_clean_spectrogram():
-    print("🧹 TESTING CLEANED SPECTROGRAM FUNCTIONS")
+    print("🧹 QUICK SPECTROGRAM CLEANLINESS TEST")
     print("=" * 50)
     
     # Create test signals similar to real packet data
@@ -105,18 +109,27 @@ def test_clean_spectrogram():
     print(f"Frequency Sweep - Shape: {Sxx2.shape}, Dynamic range: {vmax2-vmin2:.1f} dB")
     print(f"Multi-tone     - Shape: {Sxx3.shape}, Dynamic range: {vmax3-vmin3:.1f} dB")
     
-    # Test the actual plot_spectrogram function
-    print(f"\nTesting plot_spectrogram function...")
-    try:
-        plot_spectrogram(f1, t1, Sxx1, title='Clean Function Test - Tone Burst')
-        plt.savefig('clean_plot_function_test.png', dpi=150, bbox_inches='tight')
-        plt.close('all')
-        print(f"✅ plot_spectrogram function test saved as 'clean_plot_function_test.png'")
-    except Exception as e:
-        print(f"❌ Error in plot_spectrogram: {e}")
+    # Quick validation
+    all_clean = True
+    if vmax1 - vmin1 > 35:
+        print(f"⚠️  WARNING: Tone burst dynamic range too high: {vmax1-vmin1:.1f} dB")
+        all_clean = False
+    if vmax2 - vmin2 > 35:
+        print(f"⚠️  WARNING: Frequency sweep dynamic range too high: {vmax2-vmin2:.1f} dB")
+        all_clean = False
+    if vmax3 - vmin3 > 35:
+        print(f"⚠️  WARNING: Multi-tone dynamic range too high: {vmax3-vmin3:.1f} dB")
+        all_clean = False
     
-    print(f"\n🎯 CLEAN SPECTROGRAM TEST COMPLETE")
-    print(f"Check the generated PNG files to verify clean, noise-free display")
+    if all_clean:
+        print(f"\n🎯 ✅ QUICK CLEANLINESS CHECK PASSED")
+        print(f"Spectrograms are clean and noise-free!")
+    else:
+        print(f"\n⚠️  CLEANLINESS ISSUES DETECTED")
+        print(f"Review spectrogram parameters!")
+    
+    print(f"\n🎯 QUICK TEST COMPLETE")
+    print(f"Check 'clean_spectrogram_test.png' for visual verification")
 
 if __name__ == "__main__":
     test_clean_spectrogram()

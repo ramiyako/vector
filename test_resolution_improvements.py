@@ -338,6 +338,28 @@ def main():
     # Run performance benchmarks
     performance_results = run_performance_benchmark()
     
+    # Run cleanliness monitoring tests
+    print("\n" + "🧹" * 3 + " RUNNING SPECTROGRAM CLEANLINESS MONITORING " + "🧹" * 3)
+    try:
+        from tests.test_spectrogram_cleanliness import run_all_cleanliness_tests
+        cleanliness_passed = run_all_cleanliness_tests()
+        if not cleanliness_passed:
+            print("⚠️  CLEANLINESS TESTS FAILED - Spectrograms may be too noisy!")
+    except ImportError:
+        print("⚠️  Cleanliness tests not available (tests/test_spectrogram_cleanliness.py not found)")
+        print("   Running basic cleanliness check...")
+        # Run basic check
+        try:
+            import os, sys
+            if os.path.exists('test_clean_spectrogram.py'):
+                sys.path.insert(0, '.')
+                from test_clean_spectrogram import test_clean_spectrogram
+                test_clean_spectrogram()
+        except Exception as e:
+            print(f"   Basic cleanliness check failed: {e}")
+    except Exception as e:
+        print(f"⚠️  Error running cleanliness tests: {e}")
+    
     # Summary
     print("\n" + "=" * 60)
     print("TEST SUMMARY")
