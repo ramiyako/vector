@@ -175,27 +175,29 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     # Calculate signal duration
     signal_duration_us = len(sig) / fs * 1e6
     
-    # Fixed resolution calculation - ensure we get multiple time bins
+    # Clean spectrogram calculation - optimized for clear packet visualization
     if adaptive_resolution:
+        # Use smaller windows for cleaner spectrograms
         if signal_duration_us <= 50:  # Very short signals (≤50μs)
-            base_window = max(64, min(len(sig) // 8, 4096))  # Smaller window for short signals
-            time_resolution_us = min(time_resolution_us, signal_duration_us / 10)  # At least 10 time bins
-            freq_resolution_factor = 2
+            base_window = max(32, min(len(sig) // 12, 256))
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 15)
+            freq_resolution_factor = 1.5
         elif signal_duration_us <= 500:  # Short signals (≤500μs)
-            base_window = max(128, min(len(sig) // 6, 8192))
-            time_resolution_us = min(time_resolution_us, signal_duration_us / 20)  # At least 20 time bins
-            freq_resolution_factor = 3
+            base_window = max(64, min(len(sig) // 10, 512))
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 25)
+            freq_resolution_factor = 1.5
         elif signal_duration_us <= 5000:  # Medium signals (≤5ms)
-            base_window = max(256, min(len(sig) // 4, 12288))
-            time_resolution_us = min(time_resolution_us, 2)
+            base_window = max(128, min(len(sig) // 8, 1024))
+            time_resolution_us = min(time_resolution_us, 5)
             freq_resolution_factor = 2
         else:  # Long signals (>5ms)
-            base_window = max(512, min(len(sig) // 6, 16384))
-            time_resolution_us = min(time_resolution_us, 5)
-            freq_resolution_factor = 1.5
+            base_window = max(256, min(len(sig) // 6, 2048))
+            time_resolution_us = min(time_resolution_us, 10)
+            freq_resolution_factor = 2
     else:
-        base_window = max(256, min(len(sig) // 4, 8192))
-        freq_resolution_factor = 2
+        # Clean defaults for better visualization
+        base_window = max(128, min(len(sig) // 8, 1024))
+        freq_resolution_factor = 1.5
 
     # Calculate optimal window size and step
     if time_resolution_us is not None:
@@ -216,9 +218,9 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
         window_size = min(base_window, len(sig))
         overlap = int(window_size * 0.90)  # 90% overlap
 
-    # Enhanced NFFT for better frequency resolution
-    nfft = max(512, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
-    nfft = max(nfft, 1024)  # Minimum NFFT
+    # Optimized NFFT for clean visualization
+    nfft = max(256, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
+    nfft = max(nfft, 512)  # Minimum NFFT - smaller for cleaner display
 
     # Create spectrogram with error handling
     try:
@@ -257,8 +259,8 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     return freqs, times, Sxx
 
 
-def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=98.0, max_dynamic_range=60):
-    """Normalize spectrogram with clipping and dB scaling."""
+def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dynamic_range=30):
+    """Normalize spectrogram for clean packet visualization with limited dynamic range."""
     # Handle edge cases
     if Sxx.size == 0:
         return np.array([]), 0, 0
@@ -266,15 +268,15 @@ def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=98.0, max_dy
     # Convert to dB with better handling of zeros
     Sxx_abs = np.abs(Sxx)
     # Use a floor value that's relative to the signal strength
-    noise_floor = np.percentile(Sxx_abs[Sxx_abs > 0], 1) if np.any(Sxx_abs > 0) else 1e-12
+    noise_floor = np.percentile(Sxx_abs[Sxx_abs > 0], 5) if np.any(Sxx_abs > 0) else 1e-12
     noise_floor = max(noise_floor, 1e-12)
     
     Sxx_db = 10 * np.log10(Sxx_abs + noise_floor)
 
-    # Calculate percentiles with error handling
+    # Calculate percentiles with error handling - use tighter range for cleaner display
     try:
         vmin = np.percentile(Sxx_db, low_percentile)
-        vmax = np.percentile(Sxx_db, high_percentile)
+        vmax = np.percentile(Sxx_db, high_percentile)  # 95% instead of 98%
     except:
         # Fallback if percentile calculation fails
         vmin = np.min(Sxx_db)
@@ -285,14 +287,14 @@ def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=98.0, max_dy
         vmin = np.min(Sxx_db)
         vmax = np.max(Sxx_db)
         if vmax <= vmin:
-            vmax = vmin + 60  # Default 60 dB range
+            vmax = vmin + 30  # Smaller default range for cleaner display
 
-    # Apply dynamic range limit
+    # Apply limited dynamic range for cleaner visualization
     if vmax - vmin > max_dynamic_range:
-        vmin = vmax - max_dynamic_range
+        vmin = vmax - max_dynamic_range  # 30 dB instead of 60 dB
 
     # Ensure reasonable floor
-    vmin = max(vmin, -120)  # Not lower than -120 dB
+    vmin = max(vmin, -100)  # Not lower than -100 dB
     
     return Sxx_db, vmin, vmax
 
@@ -320,9 +322,16 @@ def plot_spectrogram(
     
     if enhance_contrast:
         # Enhanced normalization for better packet detail visibility
-        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99.5, max_dynamic_range=80)
+        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=95, max_dynamic_range=40)
     else:
         Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    
+    # Apply light median filtering for cleaner display
+    try:
+        from scipy import ndimage
+        Sxx_db = ndimage.median_filter(Sxx_db, size=(2, 1))  # Light filtering in frequency only
+    except ImportError:
+        pass  # Skip filtering if scipy is not available
     
     # Handle single time bin case - extend the time axis slightly
     if len(t) == 1:
