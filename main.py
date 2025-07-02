@@ -109,7 +109,7 @@ class PacketConfig:
                 from tkinter import messagebox
                 messagebox.showerror("Error", "Sample rate not found")
                 return
-            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=10)
+            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=1)
             plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {file_path}", sample_rate=sample_rate, signal=y)
         except Exception as e:
             from tkinter import messagebox
@@ -133,7 +133,7 @@ class PacketConfig:
             pre_samples = packet_start
             self.pre_samples_var.set(str(pre_samples))
 
-            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=10)
+            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=1)
             plot_spectrogram(f, t, Sxx, title=f"Packet Analysis - {file_path}", packet_start=packet_start, sample_rate=sample_rate, signal=y)
             
         except Exception as e:
@@ -286,7 +286,7 @@ class VectorApp:
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
             f, t, Sxx = create_spectrogram(
-                vector, TARGET_SAMPLE_RATE, center_freq=center_freq, time_resolution_us=10
+                vector, TARGET_SAMPLE_RATE, center_freq=center_freq, time_resolution_us=1
             )
             # נקה את freq_shifts מערכים לא חוקיים
             clean_freq_shifts = []
