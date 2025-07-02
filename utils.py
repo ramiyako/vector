@@ -142,8 +142,22 @@ def compute_freq_ranges(shifts, margin=1e6):
     
     return [(freq_min, freq_max)]
 
-def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
-    """Creates high-resolution spectrogram from signal."""
+def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000, time_resolution_us=10):
+    """Creates high-resolution spectrogram from signal.
+
+    Parameters
+    ----------
+    sig : ndarray
+        Input complex signal.
+    sr : float
+        Sample rate in Hz.
+    center_freq : float, optional
+        Center frequency for shifting the axis.
+    max_samples : int, optional
+        Downsample if signal is longer than this.
+    time_resolution_us : float, optional
+        Desired time resolution in microseconds. Defaults to 10us.
+    """
     if len(sig) == 0:
         raise ValueError("Signal is empty")
     if len(sig) > max_samples:
@@ -154,9 +168,17 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=1_000_000):
         factor = 1
         fs = sr
 
-    window_size = min(8192, len(sig) // 4)      # Larger window for frequency precision
-    overlap = int(window_size * 0.9)            # 90% overlap for time continuity
-    nfft = 16384                                # More frequency bins (sharpness)
+    window_size = min(8192, len(sig) // 4)      # Base window for frequency precision
+
+    if time_resolution_us is not None:
+        step_samples = max(1, int(round(fs * time_resolution_us / 1e6)))
+        if window_size < step_samples:
+            window_size = step_samples
+        overlap = window_size - step_samples
+    else:
+        overlap = int(window_size * 0.9)            # 90% overlap for time continuity
+
+    nfft = max(16384, 2 ** int(np.ceil(np.log2(window_size * 2))))
 
     freqs, times, Sxx = scipy.signal.spectrogram(
         sig,
@@ -379,7 +401,7 @@ def plot_packet_with_markers(signal, packet_start, template=None, title='Packet 
     plt.show()
 
 def adjust_packet_start_gui(signal, sample_rate, packet_start):
-    f, t, Sxx = create_spectrogram(signal, sample_rate)
+    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=10)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     # Reverse frequency axis and matrix to descending order (positive left, negative right)
@@ -531,7 +553,7 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
     if end_sample is None:
         end_sample = len(signal)
 
-    f, t, Sxx = create_spectrogram(signal, sample_rate)
+    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=10)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     # Reverse frequency axis and matrix to descending order (positive left, negative right)

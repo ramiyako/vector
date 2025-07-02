@@ -541,7 +541,7 @@ class ModernPacketConfig:
                 return
                 
             packet = load_packet(config['file'])
-            f, t, Sxx = create_spectrogram(packet, TARGET_SAMPLE_RATE)
+            f, t, Sxx = create_spectrogram(packet, TARGET_SAMPLE_RATE, time_resolution_us=10)
             plot_spectrogram(f, t, Sxx, title=f"Spectrogram - {os.path.basename(config['file'])}")
             
         except Exception as e:
@@ -916,7 +916,7 @@ class UnifiedVectorApp:
             
             # Show final spectrogram
             try:
-                f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE)
+                f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, time_resolution_us=10)
                 plot_spectrogram(
                     f, t, Sxx, 
                     title=f"Final Vector Spectrogram - {output_format.upper()}",
