@@ -172,66 +172,83 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
         factor = 1
         fs = sr
 
+    # Calculate signal duration
+    signal_duration_us = len(sig) / fs * 1e6
+    
+    # Fixed resolution calculation - ensure we get multiple time bins
     if adaptive_resolution:
-        # Adaptive resolution based on signal length and sample rate
-        signal_duration_us = len(sig) / fs * 1e6
-        
-        if signal_duration_us <= 50:  # Very short signals (≤50μs) - maximum resolution
-            base_window = min(16384, len(sig) // 2)
-            time_resolution_us = min(time_resolution_us, 0.5)
-            freq_resolution_factor = 4
-        elif signal_duration_us <= 500:  # Short signals (≤500μs) - high resolution  
-            base_window = min(12288, len(sig) // 3)
-            time_resolution_us = min(time_resolution_us, 1)
+        if signal_duration_us <= 50:  # Very short signals (≤50μs)
+            base_window = max(64, min(len(sig) // 8, 4096))  # Smaller window for short signals
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 10)  # At least 10 time bins
+            freq_resolution_factor = 2
+        elif signal_duration_us <= 500:  # Short signals (≤500μs)
+            base_window = max(128, min(len(sig) // 6, 8192))
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 20)  # At least 20 time bins
             freq_resolution_factor = 3
-        elif signal_duration_us <= 5000:  # Medium signals (≤5ms) - good resolution
-            base_window = min(8192, len(sig) // 4)
+        elif signal_duration_us <= 5000:  # Medium signals (≤5ms)
+            base_window = max(256, min(len(sig) // 4, 12288))
             time_resolution_us = min(time_resolution_us, 2)
             freq_resolution_factor = 2
-        else:  # Long signals (>5ms) - balanced resolution
-            base_window = min(4096, len(sig) // 6)
+        else:  # Long signals (>5ms)
+            base_window = max(512, min(len(sig) // 6, 16384))
             time_resolution_us = min(time_resolution_us, 5)
             freq_resolution_factor = 1.5
     else:
-        # Fixed high resolution settings
-        base_window = min(8192, len(sig) // 4)
+        base_window = max(256, min(len(sig) // 4, 8192))
         freq_resolution_factor = 2
 
-    # Calculate optimal window size based on time resolution
+    # Calculate optimal window size and step
     if time_resolution_us is not None:
         step_samples = max(1, int(round(fs * time_resolution_us / 1e6)))
-        # Ensure window is large enough for the step size and good frequency resolution
-        min_window_for_step = step_samples * 4  # At least 4x step for good overlap
-        min_window_for_freq = int(fs / 1000)    # At least 1ms window for frequency resolution
-        window_size = max(base_window, min_window_for_step, min_window_for_freq)
+        # Ensure we get enough time bins
+        min_steps = 10  # Minimum number of time steps
+        max_step = len(sig) // min_steps
+        step_samples = min(step_samples, max_step)
+        step_samples = max(1, step_samples)
         
-        # Ensure window doesn't exceed signal length
+        # Window should be at least 2x step size for good overlap
+        window_size = max(base_window, step_samples * 3)
         window_size = min(window_size, len(sig))
         
-        # Calculate overlap for desired time resolution
+        # Calculate overlap
         overlap = max(0, window_size - step_samples)
     else:
-        window_size = base_window
-        overlap = int(window_size * 0.95)  # Very high overlap for smooth time representation
+        window_size = min(base_window, len(sig))
+        overlap = int(window_size * 0.90)  # 90% overlap
 
     # Enhanced NFFT for better frequency resolution
-    nfft = max(32768, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
-    
-    # Ensure minimum NFFT for good frequency resolution
-    nfft = max(nfft, 16384)
+    nfft = max(512, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
+    nfft = max(nfft, 1024)  # Minimum NFFT
 
-    # Use Blackman-Harris window for best spectral clarity
-    freqs, times, Sxx = scipy.signal.spectrogram(
-        sig,
-        fs=fs,
-        window='blackmanharris',     # Excellent sidelobe suppression for clear spectral lines
-        nperseg=window_size,
-        noverlap=overlap,
-        nfft=nfft,
-        return_onesided=False,
-        detrend='constant',          # Remove DC component for cleaner display
-        scaling='density'            # Power spectral density for better dynamic range
-    )
+    # Create spectrogram with error handling
+    try:
+        freqs, times, Sxx = scipy.signal.spectrogram(
+            sig,
+            fs=fs,
+            window='blackmanharris',     # Excellent sidelobe suppression for clear spectral lines
+            nperseg=window_size,
+            noverlap=overlap,
+            nfft=nfft,
+            return_onesided=False,
+            detrend='constant',          # Remove DC component for cleaner display
+            scaling='density'            # Power spectral density for better dynamic range
+        )
+    except Exception as e:
+        # Fallback to basic parameters if advanced settings fail
+        window_size = min(256, len(sig))
+        overlap = window_size // 2
+        nfft = 512
+        freqs, times, Sxx = scipy.signal.spectrogram(
+            sig,
+            fs=fs,
+            window='hann',
+            nperseg=window_size,
+            noverlap=overlap,
+            nfft=nfft,
+            return_onesided=False,
+            detrend='constant',
+            scaling='density'
+        )
 
     # Proper frequency shifting and centering
     freqs = np.fft.fftshift(freqs) * factor + center_freq
@@ -242,15 +259,41 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
 
 def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=98.0, max_dynamic_range=60):
     """Normalize spectrogram with clipping and dB scaling."""
-    Sxx_db = 10 * np.log10(np.abs(Sxx) + 1e-12)
+    # Handle edge cases
+    if Sxx.size == 0:
+        return np.array([]), 0, 0
+    
+    # Convert to dB with better handling of zeros
+    Sxx_abs = np.abs(Sxx)
+    # Use a floor value that's relative to the signal strength
+    noise_floor = np.percentile(Sxx_abs[Sxx_abs > 0], 1) if np.any(Sxx_abs > 0) else 1e-12
+    noise_floor = max(noise_floor, 1e-12)
+    
+    Sxx_db = 10 * np.log10(Sxx_abs + noise_floor)
 
-    vmin = np.percentile(Sxx_db, low_percentile)
-    vmax = np.percentile(Sxx_db, high_percentile)
+    # Calculate percentiles with error handling
+    try:
+        vmin = np.percentile(Sxx_db, low_percentile)
+        vmax = np.percentile(Sxx_db, high_percentile)
+    except:
+        # Fallback if percentile calculation fails
+        vmin = np.min(Sxx_db)
+        vmax = np.max(Sxx_db)
 
+    # Ensure reasonable dynamic range
+    if np.isnan(vmin) or np.isnan(vmax) or vmax <= vmin:
+        vmin = np.min(Sxx_db)
+        vmax = np.max(Sxx_db)
+        if vmax <= vmin:
+            vmax = vmin + 60  # Default 60 dB range
+
+    # Apply dynamic range limit
     if vmax - vmin > max_dynamic_range:
         vmin = vmax - max_dynamic_range
 
-    vmin = max(vmin, -100)  # Clip floor
+    # Ensure reasonable floor
+    vmin = max(vmin, -120)  # Not lower than -120 dB
+    
     return Sxx_db, vmin, vmax
 
 
@@ -270,11 +313,24 @@ def plot_spectrogram(
     high_detail_mode=True,
 ):
     """Plot ultra-sharp and detailed spectrogram with advanced enhancements for packet analysis."""
+    # Handle edge cases
+    if Sxx.size == 0:
+        print("Empty spectrogram data!")
+        return
+    
     if enhance_contrast:
         # Enhanced normalization for better packet detail visibility
         Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=99.5, max_dynamic_range=80)
     else:
         Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
+    
+    # Handle single time bin case - extend the time axis slightly
+    if len(t) == 1:
+        print("Single time bin detected - extending time axis for visualization")
+        dt = 1e-6  # 1 microsecond extension
+        t = np.array([t[0] - dt/2, t[0] + dt/2])
+        # Duplicate the spectrogram data
+        Sxx_db = np.hstack([Sxx_db, Sxx_db])
     
     freq_axis = f / 1e6  # MHz
 
@@ -297,15 +353,28 @@ def plot_spectrogram(
         colormap = 'inferno'
         interpolation = 'bilinear'
 
-    im = ax1.pcolormesh(
-        t,
-        freq_axis,
-        Sxx_db,
-        shading=shading_method,
-        cmap=colormap,
-        norm=Normalize(vmin=vmin, vmax=vmax),
-        rasterized=True,  # Better performance for high-resolution plots
-    )
+    # Create the pcolormesh plot with error handling
+    try:
+        im = ax1.pcolormesh(
+            t,
+            freq_axis,
+            Sxx_db,
+            shading=shading_method,
+            cmap=colormap,
+            norm=Normalize(vmin=vmin, vmax=vmax),
+            rasterized=True,  # Better performance for high-resolution plots
+        )
+    except Exception as e:
+        print(f"Error creating pcolormesh: {e}")
+        # Fallback to basic plotting
+        im = ax1.imshow(
+            Sxx_db,
+            aspect='auto',
+            origin='lower',
+            extent=[t.min(), t.max(), freq_axis.min(), freq_axis.max()],
+            cmap=colormap,
+            norm=Normalize(vmin=vmin, vmax=vmax)
+        )
 
     ax1.set_title(title, fontsize=14, fontweight='bold')
     ax1.set_xlabel('Time [s]', fontsize=12)
