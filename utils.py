@@ -232,8 +232,8 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
             noverlap=overlap,
             nfft=nfft,
             return_onesided=False,
-            detrend='constant',          # Remove DC component for cleaner display
-            scaling='density'            # Power spectral density for better dynamic range
+            detrend=False,               # Don't detrend - can cause issues with sparse signals
+            scaling='spectrum'           # Use spectrum instead of density for better visualization
         )
     except Exception as e:
         # Fallback to basic parameters if advanced settings fail
@@ -248,9 +248,43 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
             noverlap=overlap,
             nfft=nfft,
             return_onesided=False,
-            detrend='constant',
-            scaling='density'
+            detrend=False,               # Don't detrend
+            scaling='spectrum'           # Use spectrum scaling
         )
+
+    # Handle case where spectrogram is all zeros (sparse signal)
+    if np.max(Sxx) == 0:
+        print("Warning: Spectrogram is all zeros, trying with reduced window size...")
+        # Try with much smaller window for sparse signals
+        window_size = min(64, len(sig) // 4)
+        overlap = window_size // 4
+        nfft = max(128, window_size)
+        
+        try:
+            freqs, times, Sxx = scipy.signal.spectrogram(
+                sig,
+                fs=fs,
+                window='hann',
+                nperseg=window_size,
+                noverlap=overlap,
+                nfft=nfft,
+                return_onesided=False,
+                detrend=False,
+                scaling='spectrum'
+            )
+        except:
+            # Last resort - minimal spectrogram
+            freqs, times, Sxx = scipy.signal.spectrogram(
+                sig,
+                fs=fs,
+                window='boxcar',
+                nperseg=32,
+                noverlap=16,
+                nfft=64,
+                return_onesided=False,
+                detrend=False,
+                scaling='spectrum'
+            )
 
     # Proper frequency shifting and centering
     freqs = np.fft.fftshift(freqs) * factor + center_freq
@@ -473,8 +507,17 @@ def plot_spectrogram(
 
 
 def save_vector(vector, output_path):
-    """Save vector as MAT file"""
-    sio.savemat(output_path, {'Y': vector})
+    """Save vector as MAT file compatible with packet extractor"""
+    # Ensure vector is 1D and complex64
+    if vector.ndim > 1:
+        vector = vector.flatten()
+    vector = vector.astype(np.complex64)
+    
+    # Save with compatible format (add pre_samples=0 for vectors)
+    sio.savemat(output_path, {
+        'Y': vector,
+        'pre_samples': 0  # Vectors don't have pre-buffer
+    })
 
 def save_vector_wv(vector, output_path, sample_rate, normalize=False):
     """Save vector as WV file using existing script"""
