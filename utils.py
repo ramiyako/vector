@@ -473,8 +473,17 @@ def plot_spectrogram(
 
 
 def save_vector(vector, output_path):
-    """Save vector as MAT file"""
-    sio.savemat(output_path, {'Y': vector})
+    """Save vector as MAT file compatible with packet extractor"""
+    # Ensure vector is 1D and complex64
+    if vector.ndim > 1:
+        vector = vector.flatten()
+    vector = vector.astype(np.complex64)
+    
+    # Save with compatible format (add pre_samples=0 for vectors)
+    sio.savemat(output_path, {
+        'Y': vector,
+        'pre_samples': 0  # Vectors don't have pre-buffer
+    })
 
 def save_vector_wv(vector, output_path, sample_rate, normalize=False):
     """Save vector as WV file using existing script"""
