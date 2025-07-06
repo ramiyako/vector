@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, BooleanVar
 from utils import (
     load_packet,
+    load_packet_info,
     resample_signal,
     create_spectrogram,
     plot_spectrogram,
@@ -108,7 +109,7 @@ class PacketConfig:
                 from tkinter import messagebox
                 messagebox.showerror("Error", "Sample rate not found")
                 return
-            f, t, Sxx = create_spectrogram(y, sample_rate)
+            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=1)
             plot_spectrogram(f, t, Sxx, title=f"Spectrogram of {file_path}", sample_rate=sample_rate, signal=y)
         except Exception as e:
             from tkinter import messagebox
@@ -132,7 +133,7 @@ class PacketConfig:
             pre_samples = packet_start
             self.pre_samples_var.set(str(pre_samples))
 
-            f, t, Sxx = create_spectrogram(y, sample_rate)
+            f, t, Sxx = create_spectrogram(y, sample_rate, time_resolution_us=1)
             plot_spectrogram(f, t, Sxx, title=f"Packet Analysis - {file_path}", packet_start=packet_start, sample_rate=sample_rate, signal=y)
             
         except Exception as e:
@@ -223,7 +224,7 @@ class VectorApp:
 
             for idx, pc in enumerate(self.packet_configs):
                 cfg = pc.get_config()
-                y = load_packet(cfg['file'])
+                y, pre_buf = load_packet_info(cfg['file'])
                 base_name = os.path.splitext(os.path.basename(cfg['file']))[0]
                 if base_name not in style_map:
                     idx_style = len(style_map) % len(marker_styles)
@@ -246,7 +247,7 @@ class VectorApp:
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
 
                 # Time offset of first insertion in samples relative to start of vector
-                start_offset = int(round(cfg['start_time'] * TARGET_SAMPLE_RATE))
+                start_offset = max(0, int(round(cfg['start_time'] * TARGET_SAMPLE_RATE)) - pre_buf)
 
                 # Insert packet at the specified offset and every period thereafter
                 for start in range(start_offset, total_samples, period_samples):
@@ -256,7 +257,7 @@ class VectorApp:
                     vector[start:end] += y
                     markers.append(
                         (
-                            start / TARGET_SAMPLE_RATE,
+                            (start + pre_buf) / TARGET_SAMPLE_RATE,
                             cfg['freq_shift'],
                             base_name,
                             marker_style,
@@ -284,7 +285,9 @@ class VectorApp:
             center_freq = 0
             if freq_shifts:
                 center_freq = (min(freq_shifts) + max(freq_shifts)) / 2
-            f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, center_freq=center_freq)
+            f, t, Sxx = create_spectrogram(
+                vector, TARGET_SAMPLE_RATE, center_freq=center_freq, time_resolution_us=1
+            )
             # נקה את freq_shifts מערכים לא חוקיים
             clean_freq_shifts = []
             for val in freq_shifts:
