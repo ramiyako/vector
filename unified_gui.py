@@ -319,8 +319,8 @@ class ModernPacketExtractor:
             print(f"  Time Resolution: {time_resolution_us:.1f} μs")
             print(f"  Adaptive Mode: {adaptive}")
             
-                         # Simulate loading a large file
-             large_signal = np.random.random(max_samples).astype(np.complex64)
+            # Simulate loading a large file
+            large_signal = np.random.random(max_samples).astype(np.complex64)
              
              start_time = time.time()
              f, t, Sxx = create_spectrogram(large_signal, TARGET_SAMPLE_RATE, time_resolution_us=int(time_resolution_us), adaptive_resolution=adaptive)
