@@ -44,6 +44,13 @@ class ModernPacketExtractor:
         self.start_sample = None
         self.end_sample = None
         self.extracted_packets = []
+        
+        # Quality control settings
+        self.quality_preset = tk.StringVar(value="Fast")
+        self.max_samples = tk.IntVar(value=500_000)  # Start with fast setting
+        self.time_resolution = tk.DoubleVar(value=10.0)  # Start with fast setting
+        self.adaptive_mode = tk.BooleanVar(value=True)
+        
         self.create_widgets()
         
     def create_widgets(self):
@@ -54,11 +61,76 @@ class ModernPacketExtractor:
         # Title
         title_label = ctk.CTkLabel(
             main_frame, 
-            text="Packet Extraction", 
+            text="Packet Extraction with Quality Control", 
             font=ctk.CTkFont(size=24, weight="bold"),
             anchor="e"
         )
         title_label.pack(pady=10, fill="x")
+        
+        # Quality Control Section
+        quality_frame = ctk.CTkFrame(main_frame)
+        quality_frame.pack(fill="x", padx=20, pady=10)
+        
+        # Quality section title
+        quality_title = ctk.CTkLabel(
+            quality_frame,
+            text="🎛️ Quality Control Settings",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        quality_title.pack(pady=(10, 5))
+        
+        # Quality presets
+        preset_frame = ctk.CTkFrame(quality_frame)
+        preset_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(preset_frame, text="Quality Preset:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=10, pady=5)
+        
+        self.quality_menu = ctk.CTkOptionMenu(
+            preset_frame,
+            values=["Fast", "Balanced", "High Quality"],
+            variable=self.quality_preset,
+            command=self.on_quality_preset_change,
+            width=150,
+            height=35,
+            font=ctk.CTkFont(size=14)
+        )
+        self.quality_menu.pack(side="left", padx=10, pady=5)
+        
+        # Quality info label
+        self.quality_info_label = ctk.CTkLabel(
+            preset_frame, 
+            text="⚡ Fast: Quick loading for large files",
+            font=ctk.CTkFont(size=12)
+        )
+        self.quality_info_label.pack(side="left", padx=20, pady=5)
+        
+        # Advanced quality controls
+        advanced_frame = ctk.CTkFrame(quality_frame)
+        advanced_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Max samples control
+        max_samples_frame = ctk.CTkFrame(advanced_frame)
+        max_samples_frame.pack(fill="x", padx=5, pady=2)
+        
+        ctk.CTkLabel(max_samples_frame, text="Max Samples:", width=120, anchor="w").pack(side="left", padx=5)
+        self.max_samples_entry = ctk.CTkEntry(max_samples_frame, textvariable=self.max_samples, width=120)
+        self.max_samples_entry.pack(side="left", padx=5)
+        
+        ctk.CTkLabel(max_samples_frame, text="Time Resolution (μs):", width=130, anchor="w").pack(side="left", padx=5)
+        self.time_resolution_entry = ctk.CTkEntry(max_samples_frame, textvariable=self.time_resolution, width=100)
+        self.time_resolution_entry.pack(side="left", padx=5)
+        
+        # Adaptive mode toggle
+        adaptive_frame = ctk.CTkFrame(advanced_frame)
+        adaptive_frame.pack(fill="x", padx=5, pady=2)
+        
+        self.adaptive_check = ctk.CTkCheckBox(
+            adaptive_frame,
+            text="Adaptive Resolution Mode",
+            variable=self.adaptive_mode,
+            font=ctk.CTkFont(size=12)
+        )
+        self.adaptive_check.pack(side="left", padx=5, pady=5)
         
         # Packet extraction section
         extraction_frame = ctk.CTkFrame(main_frame)
@@ -67,7 +139,7 @@ class ModernPacketExtractor:
         # Section title
         section_title = ctk.CTkLabel(
             extraction_frame,
-            text="Packet Extraction",
+            text="📁 Packet Extraction",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         section_title.pack(pady=(10, 5))
@@ -97,6 +169,10 @@ class ModernPacketExtractor:
         
         self.signal_length_label = ctk.CTkLabel(info_frame, text="Signal Length: --")
         self.signal_length_label.pack(side="left", padx=10, pady=5)
+        
+        # Quality performance info
+        self.performance_label = ctk.CTkLabel(info_frame, text="")
+        self.performance_label.pack(side="left", padx=10, pady=5)
         
         # Packet name input
         name_frame = ctk.CTkFrame(extraction_frame)
@@ -138,6 +214,18 @@ class ModernPacketExtractor:
             font=ctk.CTkFont(size=14, weight="bold")
         )
         self.extract_button.pack(side="left", padx=10, pady=5)
+        
+        # Quality test button
+        self.test_button = ctk.CTkButton(
+            button_frame,
+            text="Test Current Quality",
+            command=self.test_current_quality,
+            state="disabled",
+            height=40,
+            font=ctk.CTkFont(size=12),
+            width=150
+        )
+        self.test_button.pack(side="left", padx=10, pady=5)
         
         # Extracted packets list
         packets_frame = ctk.CTkFrame(main_frame)
@@ -196,6 +284,63 @@ class ModernPacketExtractor:
         """Auto-generate packet name"""
         self.packet_name_var.set(f"packet_{len(self.extracted_packets)+1}")
         
+    def on_quality_preset_change(self, choice):
+        """Update quality controls based on preset selection"""
+        if choice == "Fast":
+            self.max_samples.set(500_000)
+            self.time_resolution.set(10.0)
+            self.adaptive_mode.set(True)
+            self.quality_info_label.configure(text="⚡ Fast: Quick loading for large files")
+        elif choice == "Balanced":
+            self.max_samples.set(1_000_000)
+            self.time_resolution.set(5.0)
+            self.adaptive_mode.set(True)
+            self.quality_info_label.configure(text="⚡ Balanced: Good for most files")
+        elif choice == "High Quality":
+            self.max_samples.set(2_000_000)
+            self.time_resolution.set(1.0)
+            self.adaptive_mode.set(False)
+            self.quality_info_label.configure(text="⚡ High Quality: Precise resolution")
+        self.test_button.configure(state="disabled") # Disable test button until file is loaded
+        
+    def test_current_quality(self):
+        """Test the current quality settings"""
+        if self.signal is None:
+            messagebox.showerror("Error", "Please select a file first")
+            return
+            
+        try:
+            max_samples = self.max_samples.get()
+            time_resolution_us = self.time_resolution.get()
+            adaptive = self.adaptive_mode.get()
+            
+            print(f"Testing quality with:")
+            print(f"  Max Samples: {max_samples:,}")
+            print(f"  Time Resolution: {time_resolution_us:.1f} μs")
+            print(f"  Adaptive Mode: {adaptive}")
+            
+                         # Simulate loading a large file
+             large_signal = np.random.random(max_samples).astype(np.complex64)
+             
+             start_time = time.time()
+             f, t, Sxx = create_spectrogram(large_signal, TARGET_SAMPLE_RATE, time_resolution_us=int(time_resolution_us), adaptive_resolution=adaptive)
+             load_time = time.time() - start_time
+            
+            print(f"Spectrogram created in {load_time:.2f} seconds")
+            
+            messagebox.showinfo(
+                "Quality Test Result",
+                f"Quality Test Result:\n"
+                f"  Max Samples: {max_samples:,} (used)\n"
+                f"  Time Resolution: {time_resolution_us:.1f} μs (used)\n"
+                f"  Adaptive Mode: {adaptive}\n"
+                f"  Loading Time: {load_time:.2f} seconds"
+            )
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error testing quality: {e}")
+            print(f"Error testing quality: {traceback.format_exc()}")
+            
     def refresh_packet_list(self):
         """Refresh the displayed packet list"""
         try:
@@ -300,6 +445,11 @@ class ModernPacketExtractor:
             # Load file with optimization
             print(f"Loading file {file_path} (size: {file_size:.1f} MB)...")
             start_time = time.time()
+            
+            max_samples = self.max_samples.get()
+            time_resolution_us = self.time_resolution.get()
+            adaptive = self.adaptive_mode.get()
+            
             data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
             if 'Y' in data:
                 self.signal = data['Y']
@@ -338,6 +488,7 @@ class ModernPacketExtractor:
                 text=f"Signal Length: {len(self.signal):,} samples"
             )
             self.extract_button.configure(state="normal")
+            self.test_button.configure(state="normal") # Enable test button after file is loaded
             
             messagebox.showinfo(
                 "Success", 
@@ -356,6 +507,12 @@ class ModernPacketExtractor:
             
         try:
             sample_rate = self.sample_rate
+            
+            # Get quality settings
+            max_samples = self.max_samples.get()
+            time_resolution_us = int(self.time_resolution.get())
+            adaptive_resolution = self.adaptive_mode.get()
+            
             if self.start_sample is None or self.end_sample is None:
                 start_det, end_det = detect_packet_bounds(self.signal, sample_rate)
                 buffer_samples = int(sample_rate // 1_000_000)
@@ -369,6 +526,9 @@ class ModernPacketExtractor:
                 sample_rate,
                 self.start_sample,
                 self.end_sample,
+                max_samples=max_samples,
+                time_resolution_us=time_resolution_us,
+                adaptive_resolution=adaptive_resolution
             )
             
             # Validate bounds

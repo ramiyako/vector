@@ -781,11 +781,11 @@ def adjust_packet_start_gui(signal, sample_rate, packet_start):
 
     return state['value']
 
-def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None):
+def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=None, max_samples=2_000_000, time_resolution_us=1, adaptive_resolution=True):
     if end_sample is None:
         end_sample = len(signal)
 
-    f, t, Sxx = create_spectrogram(signal, sample_rate, time_resolution_us=1)
+    f, t, Sxx = create_spectrogram(signal, sample_rate, max_samples=max_samples, time_resolution_us=time_resolution_us, adaptive_resolution=adaptive_resolution)
     Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
 
     # Reverse frequency axis and matrix to descending order (positive left, negative right)
