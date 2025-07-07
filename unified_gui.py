@@ -321,10 +321,10 @@ class ModernPacketExtractor:
             
             # Simulate loading a large file
             large_signal = np.random.random(max_samples).astype(np.complex64)
-             
-             start_time = time.time()
-             f, t, Sxx = create_spectrogram(large_signal, TARGET_SAMPLE_RATE, time_resolution_us=int(time_resolution_us), adaptive_resolution=adaptive)
-             load_time = time.time() - start_time
+            
+            start_time = time.time()
+            f, t, Sxx = create_spectrogram(large_signal, TARGET_SAMPLE_RATE, time_resolution_us=int(time_resolution_us), adaptive_resolution=adaptive)
+            load_time = time.time() - start_time
             
             print(f"Spectrogram created in {load_time:.2f} seconds")
             
