@@ -1,0 +1,26 @@
+
+Heavy Packet System Report
+==========================
+
+System Configuration:
+- Memory: 30.7 GB total, 27.7 GB available
+- CPU: 4 cores
+- Platform: linux
+
+Heavy Packet Support:
+- Status: ✅ READY
+- Max recommended samples: 25,000,000
+- Max duration @ 56MHz: 0.446s
+
+Optimizations Enabled:
+- Heavy packet optimizer: Available
+- Chunked processing: Available  
+- Memory-efficient data types: Enabled
+- Adaptive resolution: Enabled
+
+Recommendations:
+- System is ready for heavy packet processing
+- Can handle packets up to 1 second @ 56MHz
+- Use 'Balanced' or 'High Quality' presets
+
+Generated on: 2025-07-08 21:05:44

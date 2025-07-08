@@ -45,11 +45,12 @@ class ModernPacketExtractor:
         self.end_sample = None
         self.extracted_packets = []
         
-        # Quality control settings
+        # Quality control settings - optimized for heavy packets
         self.quality_preset = tk.StringVar(value="Fast")
-        self.max_samples = tk.IntVar(value=500_000)  # Start with fast setting
+        self.max_samples = tk.IntVar(value=2_000_000)  # Increased for heavy packets
         self.time_resolution = tk.DoubleVar(value=10.0)  # Start with fast setting
         self.adaptive_mode = tk.BooleanVar(value=True)
+        self.heavy_packet_mode = tk.BooleanVar(value=True)  # New: Heavy packet support
         
         self.create_widgets()
         
@@ -131,6 +132,15 @@ class ModernPacketExtractor:
             font=ctk.CTkFont(size=12)
         )
         self.adaptive_check.pack(side="left", padx=5, pady=5)
+        
+        # Heavy packet mode toggle
+        self.heavy_packet_check = ctk.CTkCheckBox(
+            adaptive_frame,
+            text="Heavy Packet Mode (>10M samples)",
+            variable=self.heavy_packet_mode,
+            font=ctk.CTkFont(size=12)
+        )
+        self.heavy_packet_check.pack(side="left", padx=20, pady=5)
         
         # Packet extraction section
         extraction_frame = ctk.CTkFrame(main_frame)
@@ -285,22 +295,25 @@ class ModernPacketExtractor:
         self.packet_name_var.set(f"packet_{len(self.extracted_packets)+1}")
         
     def on_quality_preset_change(self, choice):
-        """Update quality controls based on preset selection"""
+        """Update quality controls based on preset selection - optimized for heavy packets"""
         if choice == "Fast":
-            self.max_samples.set(500_000)
+            self.max_samples.set(2_000_000)  # Increased for heavy packets
+            self.time_resolution.set(20.0)   # Faster for heavy packets
+            self.adaptive_mode.set(True)
+            self.heavy_packet_mode.set(True)
+            self.quality_info_label.configure(text="⚡ Fast: Optimized for heavy packets")
+        elif choice == "Balanced":
+            self.max_samples.set(5_000_000)  # Much higher for heavy packets
             self.time_resolution.set(10.0)
             self.adaptive_mode.set(True)
-            self.quality_info_label.configure(text="⚡ Fast: Quick loading for large files")
-        elif choice == "Balanced":
-            self.max_samples.set(1_000_000)
+            self.heavy_packet_mode.set(True)
+            self.quality_info_label.configure(text="⚖️ Balanced: Good quality for heavy packets")
+        elif choice == "High Quality":
+            self.max_samples.set(10_000_000)  # Maximum for heavy packets
             self.time_resolution.set(5.0)
             self.adaptive_mode.set(True)
-            self.quality_info_label.configure(text="⚡ Balanced: Good for most files")
-        elif choice == "High Quality":
-            self.max_samples.set(2_000_000)
-            self.time_resolution.set(1.0)
-            self.adaptive_mode.set(False)
-            self.quality_info_label.configure(text="⚡ High Quality: Precise resolution")
+            self.heavy_packet_mode.set(True)
+            self.quality_info_label.configure(text="🔬 High Quality: Best resolution for heavy packets")
         self.test_button.configure(state="disabled") # Disable test button until file is loaded
         
     def test_current_quality(self):
@@ -500,7 +513,7 @@ class ModernPacketExtractor:
             print(f"Error loading file: {traceback.format_exc()}")
                 
     def show_spectrogram(self):
-        """Show spectrogram and extract packet"""
+        """Show spectrogram and extract packet - optimized for heavy packets"""
         if self.signal is None:
             messagebox.showerror("Error", "Please select a file first")
             return
@@ -512,6 +525,16 @@ class ModernPacketExtractor:
             max_samples = self.max_samples.get()
             time_resolution_us = int(self.time_resolution.get())
             adaptive_resolution = self.adaptive_mode.get()
+            heavy_mode = self.heavy_packet_mode.get()
+            
+            # Heavy packet detection and optimization
+            is_heavy = len(self.signal) > 10_000_000
+            if is_heavy and heavy_mode:
+                print(f"🔍 Heavy packet mode activated for {len(self.signal):,} samples")
+                # Optimize parameters for heavy packets
+                max_samples = min(max_samples, 5_000_000)  # Limit for responsiveness
+                time_resolution_us = max(time_resolution_us, 10)  # Minimum 10μs
+                print(f"📉 Using optimized parameters: max_samples={max_samples:,}, time_res={time_resolution_us}μs")
             
             if self.start_sample is None or self.end_sample is None:
                 start_det, end_det = detect_packet_bounds(self.signal, sample_rate)
@@ -521,6 +544,7 @@ class ModernPacketExtractor:
                 self.detected_start = start_det
                 self._pre_buffer = buffer_samples
 
+            start_time = time.time()
             self.start_sample, self.end_sample = adjust_packet_bounds_gui(
                 self.signal,
                 sample_rate,
@@ -530,6 +554,13 @@ class ModernPacketExtractor:
                 time_resolution_us=time_resolution_us,
                 adaptive_resolution=adaptive_resolution
             )
+            process_time = time.time() - start_time
+            
+            # Update performance info with heavy packet indicator
+            perf_text = f"Processing time: {process_time:.2f}s"
+            if is_heavy:
+                perf_text += " (Heavy Packet)"
+            self.performance_label.configure(text=perf_text)
             
             # Validate bounds
             if self.start_sample >= self.end_sample:

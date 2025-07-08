@@ -46,8 +46,15 @@ def get_sample_rate_from_mat(file_path):
         return 56e6
 
 def load_packet(file_path):
-    """Load packet data from MAT file"""
+    """Load packet data from MAT file with heavy packet optimization"""
     try:
+        # Check file size first for heavy packet detection
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        is_large_file = file_size_mb > 50  # Files > 50MB
+        
+        if is_large_file:
+            print(f"📁 Loading large file: {file_size_mb:.1f}MB")
+        
         data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
         
         if 'Y' in data:
@@ -63,8 +70,17 @@ def load_packet(file_path):
         # Ensure packet is 1D
         if packet.ndim > 1:
             packet = packet.flatten()
+        
+        # Optimize data type for memory efficiency
+        packet = packet.astype(np.complex64)
+        
+        # Heavy packet detection and warning
+        if len(packet) > 20_000_000:  # > 20M samples
+            duration_sec = len(packet) / 56e6  # Assume 56MHz
+            memory_mb = packet.nbytes / (1024 * 1024)
+            print(f"⚠️ Heavy packet loaded: {len(packet):,} samples ({duration_sec:.2f}s, {memory_mb:.1f}MB)")
             
-        return packet.astype(np.complex64)
+        return packet
         
     except Exception as e:
         print(f"Error loading packet from {file_path}: {e}")
@@ -144,6 +160,7 @@ def compute_freq_ranges(shifts, margin=1e6):
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resolution_us=1, adaptive_resolution=True):
     """Creates ultra-high-resolution spectrogram from signal for detailed packet analysis.
+    Optimized for heavy packets (1 second @ 56MHz = 56M samples).
 
     Parameters
     ----------
@@ -154,8 +171,8 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     center_freq : float, optional
         Center frequency for shifting the axis.
     max_samples : int, optional
-        Downsample if signal is longer than this. Increased to 2M for better detail.
-    time_resolution_us : float, optional
+        Downsample if signal is longer than this. For heavy packets, use up to 10M.
+    time_resolution_us : int, optional
         Desired time resolution in microseconds. Defaults to 1us for fine detail.
     adaptive_resolution : bool, optional
         Enable adaptive resolution based on signal characteristics. Default True.
@@ -163,11 +180,21 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     if len(sig) == 0:
         raise ValueError("Signal is empty")
     
+    # Heavy packet detection - for signals > 10M samples
+    is_heavy_packet = len(sig) > 10_000_000
+    if is_heavy_packet:
+        print(f"🔍 Heavy packet detected: {len(sig):,} samples ({len(sig)/sr:.2f}s)")
+        # More aggressive downsampling for heavy packets
+        max_samples = min(max_samples, 5_000_000)  # Limit to 5M samples
+        time_resolution_us = max(time_resolution_us, 5)  # Minimum 5μs resolution
+    
     # Preserve more data for better resolution
     if len(sig) > max_samples:
         factor = int(np.ceil(len(sig) / max_samples))
         sig = sig[::factor]
         fs = sr / factor
+        if is_heavy_packet:
+            print(f"📉 Downsampled by factor {factor}: {len(sig):,} samples")
     else:
         factor = 1
         fs = sr
@@ -533,6 +560,84 @@ def generate_sample_packet(duration, sr, frequency, amplitude=1.0):
     # the number of samples is exactly sr * duration and spacing is 1/sr.
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     signal = amplitude * np.exp(2j * np.pi * frequency * t)
+    return signal
+
+def process_heavy_packet_safe(signal, sample_rate, operation="spectrogram", **kwargs):
+    """Process heavy packets safely with automatic optimization
+    
+    Args:
+        signal: Input signal array
+        sample_rate: Sample rate in Hz
+        operation: Type of operation ("spectrogram", etc.)
+        **kwargs: Additional arguments for the operation
+    
+    Returns:
+        Processed result with optimization for heavy packets
+    """
+    try:
+        # Try importing the heavy packet optimizer
+        from heavy_packet_optimizer import HeavyPacketOptimizer
+        
+        optimizer = HeavyPacketOptimizer()
+        print("🚀 Using heavy packet optimizer")
+        
+        return optimizer.process_heavy_signal(signal, sample_rate, operation, **kwargs)
+        
+    except ImportError:
+        print("⚠️ Heavy packet optimizer not available, using standard processing")
+        # Fallback to standard processing with basic optimizations
+        
+        if len(signal) > 10_000_000:  # Heavy packet threshold
+            print(f"📊 Processing heavy signal: {len(signal):,} samples")
+            
+            # Basic memory optimization
+            if signal.dtype in [np.complex128, np.float64]:
+                signal = signal.astype(np.complex64)
+            
+            # Use more conservative parameters for heavy packets
+            kwargs.setdefault('max_samples', 5_000_000)
+            kwargs.setdefault('time_resolution_us', 10)
+            kwargs.setdefault('adaptive_resolution', True)
+        
+        if operation == "spectrogram":
+            return create_spectrogram(signal, sample_rate, **kwargs)
+        else:
+            raise ValueError(f"Unsupported operation: {operation}")
+
+def create_heavy_packet_test(duration_sec=1.0, sample_rate=56e6):
+    """Create a test heavy packet for testing purposes
+    
+    Args:
+        duration_sec: Duration in seconds (default 1.0 = 1 second)
+        sample_rate: Sample rate in Hz (default 56MHz)
+    
+    Returns:
+        Heavy test packet as numpy array
+    """
+    print(f"🧪 Creating heavy test packet: {duration_sec}s @ {sample_rate/1e6:.1f}MHz")
+    
+    total_samples = int(duration_sec * sample_rate)
+    print(f"📊 Total samples: {total_samples:,} ({total_samples * 8 / 1024 / 1024:.1f}MB for complex64)")
+    
+    # Create a complex signal with multiple frequency components
+    t = np.linspace(0, duration_sec, total_samples, endpoint=False, dtype=np.float32)
+    
+    # Multiple frequency components to make it realistic
+    frequencies = [1e6, 5e6, 10e6, 15e6]  # 1, 5, 10, 15 MHz
+    amplitudes = [1.0, 0.7, 0.5, 0.3]
+    
+    signal = np.zeros(total_samples, dtype=np.complex64)
+    
+    for freq, amp in zip(frequencies, amplitudes):
+        phase_noise = np.random.random(total_samples) * 0.1  # Small phase noise
+        signal += amp * np.exp(2j * np.pi * freq * t + 1j * phase_noise)
+    
+    # Add some noise to make it realistic
+    noise_power = 0.1
+    noise = noise_power * (np.random.random(total_samples) + 1j * np.random.random(total_samples) - (0.5 + 0.5j))
+    signal += noise.astype(np.complex64)
+    
+    print(f"✅ Heavy test packet created: {len(signal):,} samples")
     return signal
 
 def create_sample_packets():
