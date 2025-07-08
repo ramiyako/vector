@@ -327,19 +327,25 @@ class ModernPacketExtractor:
         estimated_time_balanced = signal_length / 5_000_000  # Balanced: ~5M samples per second
         estimated_time_high = signal_length / 2_000_000  # High quality: ~2M samples per second
         
-        # Decision logic based on file size and analysis time
-        if file_size_mb > 200 or estimated_time_high > 30:
-            # Very large files or long analysis time - use Fast mode
+        # Decision logic - prioritize analysis time over file size
+        if estimated_time_high >= 30 or file_size_mb > 200:
+            # Very long analysis time or very large files - use Fast mode
+            if estimated_time_high >= 30:
+                reason = f"Long analysis time ({estimated_time_high:.1f}s) requires fast mode"
+            else:
+                reason = f"Large file ({file_size_mb:.1f}MB) requires fast mode"
             recommended_quality = "Fast"
-            reason = f"Large file ({file_size_mb:.1f}MB) or long analysis time ({estimated_time_high:.1f}s)"
-        elif file_size_mb > 50 or estimated_time_balanced > 10:
-            # Medium files or moderate analysis time - use Balanced mode
+        elif estimated_time_high > 10 or file_size_mb > 50:
+            # Moderate analysis time or medium files - use Balanced mode
+            if estimated_time_high > 10:
+                reason = f"Moderate analysis time ({estimated_time_high:.1f}s) suggests balanced mode"
+            else:
+                reason = f"Medium file ({file_size_mb:.1f}MB) suggests balanced mode"
             recommended_quality = "Balanced"
-            reason = f"Medium file ({file_size_mb:.1f}MB) or moderate analysis time ({estimated_time_balanced:.1f}s)"
         else:
-            # Small files - use High Quality mode
+            # Fast analysis time and small files - use High Quality mode
             recommended_quality = "High Quality"
-            reason = f"Small file ({file_size_mb:.1f}MB) allowing high quality analysis"
+            reason = f"Small file ({file_size_mb:.1f}MB) and fast analysis ({estimated_time_high:.1f}s) allow high quality"
         
         return recommended_quality, reason, {
             "estimated_time_fast": estimated_time_fast,
