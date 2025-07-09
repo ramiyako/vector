@@ -1139,6 +1139,103 @@ class UnifiedVectorApp:
     def generate_wv_vector(self):
         """Generate WV vector"""
         self.generate_vector("wv")
+    
+    def validate_packet_timing(self, markers, packet_configs):
+        """ולידציה של מרווחי הזמן בין תחילת הפקטות - מחזירה טקסט קצר לכותרת"""
+        
+        # סידור מרקרים לפי זמן תחילת הפקטה
+        markers_by_packet = {}
+        for time_sec, freq_shift, packet_name, marker_style, marker_color in markers:
+            if packet_name not in markers_by_packet:
+                markers_by_packet[packet_name] = []
+            markers_by_packet[packet_name].append(time_sec)
+        
+        # סידור זמני התחילה עבור כל פקטה
+        for packet_name in markers_by_packet:
+            markers_by_packet[packet_name].sort()
+        
+        validation_results = []
+        
+        for idx, cfg in enumerate(packet_configs):
+            config = cfg.get_config()
+            if not config:
+                continue
+                
+            packet_name = os.path.splitext(os.path.basename(config['file']))[0]
+            
+            if packet_name in markers_by_packet:
+                packet_times = markers_by_packet[packet_name]
+                expected_period_ms = config['period'] * 1000  # המרה לאלפיות שנייה
+                expected_start_time_ms = config['start_time'] * 1000  # המרה לאלפיות שנייה
+                
+                # בדיקת זמן התחלה הראשון
+                start_time_accuracy = 100.0  # ברירת מחדל
+                if len(packet_times) > 0:
+                    actual_start_time_ms = packet_times[0] * 1000
+                    start_time_error_ms = abs(actual_start_time_ms - expected_start_time_ms)
+                    start_time_accuracy = max(0, 100 - (start_time_error_ms / max(expected_start_time_ms, 0.1) * 100))
+                
+                # בדיקת מרווחי זמן בין פקטות
+                period_accuracy = 100.0  # ברירת מחדל
+                if len(packet_times) > 1:
+                    measured_intervals = []
+                    for i in range(1, len(packet_times)):
+                        interval_sec = packet_times[i] - packet_times[i-1]
+                        interval_ms = interval_sec * 1000
+                        measured_intervals.append(interval_ms)
+                    
+                    avg_interval_ms = np.mean(measured_intervals)
+                    period_accuracy = (avg_interval_ms / expected_period_ms * 100) if expected_period_ms > 0 else 100
+                    period_accuracy = min(100, period_accuracy)  # מקסימום 100%
+                
+                validation_results.append({
+                    'packet_name': packet_name,
+                    'start_accuracy': start_time_accuracy,
+                    'period_accuracy': period_accuracy,
+                    'instances': len(packet_times)
+                })
+        
+        # חישוב דיוק כללי
+        if not validation_results:
+            return "No packets to validate"
+        
+        total_accuracy = 0
+        valid_packets = 0
+        
+        for result in validation_results:
+            # דיוק משוקלל (70% פריודה, 30% זמן התחלה)
+            packet_accuracy = (result['period_accuracy'] * 0.7 + result['start_accuracy'] * 0.3)
+            total_accuracy += packet_accuracy
+            valid_packets += 1
+        
+        overall_accuracy = total_accuracy / valid_packets if valid_packets > 0 else 0
+        
+        # הכנת טקסט קצר לכותרת
+        if overall_accuracy > 99.5:
+            status = "✅ PERFECT"
+        elif overall_accuracy > 99.0:
+            status = "✅ EXCELLENT" 
+        elif overall_accuracy > 95.0:
+            status = "⚠️ GOOD"
+        elif overall_accuracy > 90.0:
+            status = "⚠️ OK"
+        else:
+            status = "❌ POOR"
+        
+        # הדפסת פרטים מפורטים לטרמינל
+        print("\n" + "="*60)
+        print("🔍 PACKET TIMING VALIDATION RESULTS")
+        print("="*60)
+        
+        for result in validation_results:
+            print(f"📦 {result['packet_name']}: {result['instances']} instances")
+            print(f"   🎯 Start Time Accuracy: {result['start_accuracy']:.1f}%")
+            print(f"   ⏱️  Period Accuracy: {result['period_accuracy']:.1f}%")
+        
+        print(f"\n🏆 Overall Accuracy: {overall_accuracy:.1f}% - {status}")
+        print("="*60)
+        
+        return f"Timing Validation: {overall_accuracy:.1f}% {status}"
         
     def generate_vector(self, output_format="mat"):
         """Generate vector with performance optimization"""
@@ -1243,17 +1340,20 @@ class UnifiedVectorApp:
             
             print(f"Vector saved to {output_path}")
             
-            # Show final spectrogram
+            # Validate packet timing and prepare validation text
+            validation_text = self.validate_packet_timing(markers, self.packet_configs)
+            
+            # Show final spectrogram with validation results
             try:
                 f, t, Sxx = create_spectrogram(vector, TARGET_SAMPLE_RATE, time_resolution_us=1)
                 plot_spectrogram(
                     f, t, Sxx, 
-                    title=f"Final Vector Spectrogram - {output_format.upper()}",
+                    title=f"Final Vector Spectrogram - {output_format.upper()} | {validation_text}",
                     packet_markers=markers,
                     sample_rate=TARGET_SAMPLE_RATE,
                     signal=vector
                 )
-                print("Final spectrogram displayed")
+                print("Final spectrogram displayed with timing validation")
             except Exception as e:
                 print(f"Warning: Could not display final spectrogram: {e}")
             
