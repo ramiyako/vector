@@ -210,118 +210,6 @@ class VectorApp:
 
     def generate_wv_vector(self):
         self.generate_vector("wv")
-    
-    def validate_packet_timing(self, markers, packet_configs):
-        """ולידציה של מרווחי הזמן בין תחילת הפקטות"""
-        print("\n" + "="*70)
-        print("🔍 ולידציה של מרווחי הזמן בין תחילת הפקטות")
-        print("="*70)
-        
-        # סידור מרקרים לפי זמן תחילת הפקטה
-        markers_by_packet = {}
-        for time_sec, freq_shift, packet_name, marker_style, marker_color in markers:
-            if packet_name not in markers_by_packet:
-                markers_by_packet[packet_name] = []
-            markers_by_packet[packet_name].append(time_sec)
-        
-        # סידור זמני התחילה עבור כל פקטה
-        for packet_name in markers_by_packet:
-            markers_by_packet[packet_name].sort()
-        
-        validation_results = []
-        
-        for idx, cfg in enumerate(packet_configs):
-            config = cfg.get_config()
-            packet_name = os.path.splitext(os.path.basename(config['file']))[0]
-            
-            if packet_name in markers_by_packet:
-                packet_times = markers_by_packet[packet_name]
-                expected_period_ms = config['period'] * 1000  # המרה לאלפיות שנייה
-                expected_start_time_ms = config['start_time'] * 1000  # המרה לאלפיות שנייה
-                
-                print(f"\n📦 פקטה {idx+1}: {packet_name}")
-                print(f"   ⏱️  פריודה צפויה: {expected_period_ms:.2f} ms")
-                print(f"   🚀 זמן התחלה צפוי: {expected_start_time_ms:.2f} ms")
-                
-                # בדיקת זמן התחלה הראשון
-                if len(packet_times) > 0:
-                    actual_start_time_ms = packet_times[0] * 1000
-                    start_time_error_ms = abs(actual_start_time_ms - expected_start_time_ms)
-                    print(f"   🎯 זמן התחלה בפועל: {actual_start_time_ms:.2f} ms")
-                    print(f"   📊 סטייה בזמן התחלה: {start_time_error_ms:.2f} ms")
-                    
-                    if start_time_error_ms > 0.1:  # סטייה של יותר מ-0.1ms
-                        print(f"   ⚠️  אזהרה: סטייה גדולה בזמן התחלה!")
-                    else:
-                        print(f"   ✅ זמן התחלה תקין")
-                
-                # בדיקת מרווחי זמן בין פקטות
-                if len(packet_times) > 1:
-                    measured_intervals = []
-                    for i in range(1, len(packet_times)):
-                        interval_sec = packet_times[i] - packet_times[i-1]
-                        interval_ms = interval_sec * 1000
-                        measured_intervals.append(interval_ms)
-                        
-                        period_error_ms = abs(interval_ms - expected_period_ms)
-                        print(f"   📏 מרווח {i}: {interval_ms:.2f} ms (סטייה: {period_error_ms:.2f} ms)")
-                        
-                        if period_error_ms > 0.1:  # סטייה של יותר מ-0.1ms
-                            print(f"        ⚠️  אזהרה: סטייה גדולה במרווח!")
-                        else:
-                            print(f"        ✅ מרווח תקין")
-                    
-                    # סטטיסטיקות כלליות
-                    avg_interval_ms = np.mean(measured_intervals)
-                    std_interval_ms = np.std(measured_intervals)
-                    print(f"   📈 ממוצע מרווחים: {avg_interval_ms:.2f} ms")
-                    print(f"   📊 סטיית תקן: {std_interval_ms:.2f} ms")
-                    
-                    validation_results.append({
-                        'packet_name': packet_name,
-                        'expected_period_ms': expected_period_ms,
-                        'measured_intervals': measured_intervals,
-                        'avg_interval_ms': avg_interval_ms,
-                        'std_interval_ms': std_interval_ms,
-                        'period_accuracy': avg_interval_ms / expected_period_ms if expected_period_ms > 0 else 0
-                    })
-                    
-                else:
-                    print(f"   ℹ️  רק מופע אחד נמצא")
-            else:
-                print(f"\n❌ לא נמצאו מרקרים עבור פקטה {packet_name}")
-        
-        # סיכום כללי
-        print("\n" + "="*70)
-        print("📋 סיכום ולידציה:")
-        print("="*70)
-        
-        total_accuracy = 0
-        valid_packets = 0
-        
-        for result in validation_results:
-            accuracy_percent = result['period_accuracy'] * 100
-            total_accuracy += accuracy_percent
-            valid_packets += 1
-            
-            print(f"🎯 {result['packet_name']}: דיוק של {accuracy_percent:.1f}% (סטיית תקן: {result['std_interval_ms']:.2f} ms)")
-        
-        if valid_packets > 0:
-            overall_accuracy = total_accuracy / valid_packets
-            print(f"\n🏆 דיוק כללי: {overall_accuracy:.1f}%")
-            
-            if overall_accuracy > 99.9:
-                print("✅ המערכת עובדת בדיוק מעולה!")
-            elif overall_accuracy > 99.0:
-                print("✅ המערכת עובדת בדיוק טוב")
-            elif overall_accuracy > 95.0:
-                print("⚠️  המערכת עובדת בדיוק בינוני - יש לבדוק")
-            else:
-                print("❌ המערכת לא עובדת בדיוק מספיק - יש לתקן!")
-        else:
-            print("❌ לא נמצאו פקטות תקינות לבדיקה")
-        
-        print("="*70)
 
     def generate_vector(self, output_format="mat"):
         try:
@@ -416,9 +304,6 @@ class VectorApp:
                     import warnings
                     warnings.warn(f"ranges לא תקין: {e}. תוצג כל הספקטרוגרמה.")
                     ranges = None
-            # תוספת: ולידציה של מרווחי הזמן בין תחילת הפקטות
-            self.validate_packet_timing(markers, self.packet_configs)
-            
             plot_spectrogram(
                 f,
                 t,
