@@ -51,6 +51,7 @@ class ModernPacketExtractor:
         self.time_resolution = tk.DoubleVar(value=10.0)  # Start with fast setting
         self.adaptive_mode = tk.BooleanVar(value=True)
         self.heavy_packet_mode = tk.BooleanVar(value=True)  # New: Heavy packet support
+        self.auto_quality_enabled = tk.BooleanVar(value=True)  # Enable automatic quality decision
         
         self.create_widgets()
         
@@ -141,6 +142,15 @@ class ModernPacketExtractor:
             font=ctk.CTkFont(size=12)
         )
         self.heavy_packet_check.pack(side="left", padx=20, pady=5)
+        
+        # Auto quality toggle
+        self.auto_quality_check = ctk.CTkCheckBox(
+            adaptive_frame,
+            text="Auto Quality Selection",
+            variable=self.auto_quality_enabled,
+            font=ctk.CTkFont(size=12)
+        )
+        self.auto_quality_check.pack(side="left", padx=20, pady=5)
         
         # Packet extraction section
         extraction_frame = ctk.CTkFrame(main_frame)
@@ -314,7 +324,47 @@ class ModernPacketExtractor:
             self.adaptive_mode.set(True)
             self.heavy_packet_mode.set(True)
             self.quality_info_label.configure(text="🔬 High Quality: Best quality for heavy packets")
-        self.test_button.configure(state="disabled") # Disable test button until file is loaded
+        
+        # Update test button state
+        if hasattr(self, 'signal') and self.signal is not None:
+            self.test_button.configure(state="normal")
+        else:
+            self.test_button.configure(state="disabled")
+
+    def auto_determine_quality(self, file_size_mb, signal_length):
+        """Automatically determine quality based on file size and estimated analysis time"""
+        
+        # Estimate analysis time based on signal length
+        # These are rough estimates based on typical performance
+        estimated_time_fast = signal_length / 10_000_000  # Fast mode: ~10M samples per second
+        estimated_time_balanced = signal_length / 5_000_000  # Balanced: ~5M samples per second
+        estimated_time_high = signal_length / 2_000_000  # High quality: ~2M samples per second
+        
+        # Decision logic - prioritize analysis time over file size
+        if estimated_time_high >= 30 or file_size_mb > 200:
+            # Very long analysis time or very large files - use Fast mode
+            if estimated_time_high >= 30:
+                reason = f"Long analysis time ({estimated_time_high:.1f}s) requires fast mode"
+            else:
+                reason = f"Large file ({file_size_mb:.1f}MB) requires fast mode"
+            recommended_quality = "Fast"
+        elif estimated_time_high > 10 or file_size_mb > 50:
+            # Moderate analysis time or medium files - use Balanced mode
+            if estimated_time_high > 10:
+                reason = f"Moderate analysis time ({estimated_time_high:.1f}s) suggests balanced mode"
+            else:
+                reason = f"Medium file ({file_size_mb:.1f}MB) suggests balanced mode"
+            recommended_quality = "Balanced"
+        else:
+            # Fast analysis time and small files - use High Quality mode
+            recommended_quality = "High Quality"
+            reason = f"Small file ({file_size_mb:.1f}MB) and fast analysis ({estimated_time_high:.1f}s) allow high quality"
+        
+        return recommended_quality, reason, {
+            "estimated_time_fast": estimated_time_fast,
+            "estimated_time_balanced": estimated_time_balanced,
+            "estimated_time_high": estimated_time_high
+        }
         
     def auto_adjust_quality_settings(self, signal_length, file_size_mb):
         """Auto-adjust quality settings based on file characteristics"""
@@ -533,6 +583,42 @@ class ModernPacketExtractor:
             load_time = time.time() - start_time
             print(f"File loaded successfully in {load_time:.2f} seconds")
             
+            # Auto-determine quality if enabled
+            if self.auto_quality_enabled.get():
+                recommended_quality, reason, time_estimates = self.auto_determine_quality(file_size, len(self.signal))
+                
+                # Apply the recommended quality
+                self.quality_preset.set(recommended_quality)
+                self.on_quality_preset_change(recommended_quality)
+                
+                # Update performance label with auto-quality info
+                self.performance_label.configure(
+                    text=f"🤖 Auto-selected: {recommended_quality} ({reason})"
+                )
+                
+                print(f"Auto-selected quality: {recommended_quality}")
+                print(f"Reason: {reason}")
+                print(f"Estimated analysis times - Fast: {time_estimates['estimated_time_fast']:.1f}s, "
+                      f"Balanced: {time_estimates['estimated_time_balanced']:.1f}s, "
+                      f"High: {time_estimates['estimated_time_high']:.1f}s")
+                
+                # Show auto-quality notification
+                auto_quality_message = (
+                    f"🤖 Auto Quality Selection:\n\n"
+                    f"Selected: {recommended_quality}\n"
+                    f"Reason: {reason}\n\n"
+                    f"Estimated analysis times:\n"
+                    f"• Fast: {time_estimates['estimated_time_fast']:.1f}s\n"
+                    f"• Balanced: {time_estimates['estimated_time_balanced']:.1f}s\n"
+                    f"• High Quality: {time_estimates['estimated_time_high']:.1f}s\n\n"
+                    f"You can change the quality setting manually if needed."
+                )
+                
+                messagebox.showinfo("Auto Quality Selection", auto_quality_message)
+            else:
+                # Clear performance label if auto-quality is disabled
+                self.performance_label.configure(text="")
+            
             # Update info
             self.sample_rate_label.configure(
                 text=f"Sample Rate: {self.sample_rate/1e6:.1f} MHz"
@@ -547,10 +633,15 @@ class ModernPacketExtractor:
             self.extract_button.configure(state="normal")
             self.test_button.configure(state="normal") # Enable test button after file is loaded
             
-            messagebox.showinfo(
-                "Success", 
-                f"File loaded successfully!\nLength: {len(self.signal):,} samples\nSample Rate: {self.sample_rate/1e6:.1f} MHz\nLoading Time: {load_time:.2f} seconds"
+            success_message = (
+                f"File loaded successfully!\n"
+                f"Length: {len(self.signal):,} samples\n"
+                f"Sample Rate: {self.sample_rate/1e6:.1f} MHz\n"
+                f"Loading Time: {load_time:.2f} seconds"
             )
+            
+            if not self.auto_quality_enabled.get():
+                messagebox.showinfo("Success", success_message)
             
         except Exception as e:
             messagebox.showerror("Error", f"Error loading file: {e}")
