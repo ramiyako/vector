@@ -1141,16 +1141,16 @@ class UnifiedVectorApp:
         self.generate_vector("wv")
     
     def validate_packet_timing(self, markers, packet_configs):
-        """שיפור ולידציה של מרווחי הזמן בין תחילת הפקטות - מחזירה טקסט קצר לכותרת ופרטים מפורטים"""
+        """Enhanced validation of timing intervals between packet start times - returns short text for title and detailed explanations"""
         
-        # סידור מרקרים לפי זמן תחילת הפקטה
+        # Sort markers by packet start time
         markers_by_packet = {}
         for time_sec, freq_shift, packet_name, marker_style, marker_color in markers:
             if packet_name not in markers_by_packet:
                 markers_by_packet[packet_name] = []
             markers_by_packet[packet_name].append((time_sec, freq_shift))
         
-        # סידור זמני התחילה עבור כל פקטה
+        # Sort start times for each packet
         for packet_name in markers_by_packet:
             markers_by_packet[packet_name].sort(key=lambda x: x[0])  # Sort by time
         
@@ -1173,7 +1173,7 @@ class UnifiedVectorApp:
                 expected_start_time_ms = config['start_time'] * 1000
                 expected_freq_shift = config['freq_shift']
                 
-                # בדיקת זמן התחלה הראשון - עם סובלנות למספר רב של פקטות
+                # Check first start time - with tolerance for multiple packets
                 start_time_accuracy = 100.0
                 start_time_explanation = ""
                 start_time_error_ms = 0.0  # Initialize variable
@@ -1182,18 +1182,18 @@ class UnifiedVectorApp:
                     actual_start_time_ms = packet_times[0] * 1000
                     start_time_error_ms = abs(actual_start_time_ms - expected_start_time_ms)
                     
-                    # סובלנות גבוהה יותר למספר רב של פקטות
+                    # Higher tolerance for multiple packets
                     tolerance_factor = 1.0 if len(packet_times) <= 2 else 0.5
                     max_tolerance_ms = 10.0 * tolerance_factor  # 10ms tolerance, reduced for multiple packets
                     
                     if start_time_error_ms <= max_tolerance_ms:
                         start_time_accuracy = 100.0
-                        start_time_explanation = f"זמן התחלה מדויק ({start_time_error_ms:.2f}ms שגיאה)"
+                        start_time_explanation = f"Start time accurate ({start_time_error_ms:.2f}ms error)"
                     else:
                         start_time_accuracy = max(0, 100 - (start_time_error_ms / max_tolerance_ms * 50))
-                        start_time_explanation = f"זמן התחלה לא מדויק ({start_time_error_ms:.2f}ms שגיאה)"
+                        start_time_explanation = f"Start time inaccurate ({start_time_error_ms:.2f}ms error)"
                 
-                # בדיקת מרווחי זמן בין פקטות - מתקדמת
+                # Check time intervals between packets - advanced
                 period_accuracy = 100.0
                 period_explanation = ""
                 period_error_percent = 0.0  # Initialize variable
@@ -1208,48 +1208,48 @@ class UnifiedVectorApp:
                     avg_interval_ms = np.mean(measured_intervals)
                     interval_std_ms = np.std(measured_intervals)
                     
-                    # חישוב דיוק פריודה מתקדם
+                    # Calculate advanced period accuracy
                     period_error_percent = abs(avg_interval_ms - expected_period_ms) / expected_period_ms * 100
                     
                     if period_error_percent <= 1.0:  # 1% tolerance
                         period_accuracy = 100.0
-                        period_explanation = f"פריודה מדויקת ({avg_interval_ms:.2f}ms ממוצע, {interval_std_ms:.2f}ms סטיה)"
+                        period_explanation = f"Period accurate ({avg_interval_ms:.2f}ms avg, {interval_std_ms:.2f}ms std)"
                     elif period_error_percent <= 5.0:  # 5% tolerance
                         period_accuracy = 100 - (period_error_percent - 1.0) * 5  # Linear decrease
-                        period_explanation = f"פריודה טובה ({avg_interval_ms:.2f}ms ממוצע, {period_error_percent:.1f}% שגיאה)"
+                        period_explanation = f"Period good ({avg_interval_ms:.2f}ms avg, {period_error_percent:.1f}% error)"
                     else:
                         period_accuracy = max(0, 80 - (period_error_percent - 5.0) * 2)
-                        period_explanation = f"פריודה לא מדויקת ({avg_interval_ms:.2f}ms ממוצע, {period_error_percent:.1f}% שגיאה)"
+                        period_explanation = f"Period inaccurate ({avg_interval_ms:.2f}ms avg, {period_error_percent:.1f}% error)"
                 elif len(packet_times) == 1:
-                    period_explanation = "פקטה יחידה - אין פריודה לבדיקה"
+                    period_explanation = "Single instance - no period to validate"
                 
-                # בדיקת סטיות תדר - לא מורידה ציון אלא רק מעירה
+                # Check frequency deviations - doesn't penalize heavily, only comments
                 freq_accuracy = 100.0
                 freq_explanation = ""
                 
                 if len(freq_shifts) > 0:
                     unique_freq_shifts = set(freq_shifts)
                     if len(unique_freq_shifts) == 1 and freq_shifts[0] == expected_freq_shift:
-                        freq_explanation = f"הסטת תדר תקינה ({expected_freq_shift/1e6:.1f}MHz)"
+                        freq_explanation = f"Frequency shift correct ({expected_freq_shift/1e6:.1f}MHz)"
                     elif len(unique_freq_shifts) == 1:
                         actual_shift = freq_shifts[0]
                         shift_error_mhz = abs(actual_shift - expected_freq_shift) / 1e6
                         if shift_error_mhz <= 0.1:  # 100kHz tolerance
-                            freq_explanation = f"הסטת תדר קרובה לצפויה ({actual_shift/1e6:.1f}MHz)"
+                            freq_explanation = f"Frequency shift close to expected ({actual_shift/1e6:.1f}MHz)"
                         else:
-                            freq_explanation = f"הסטת תדר שונה מהצפויה ({actual_shift/1e6:.1f}MHz במקום {expected_freq_shift/1e6:.1f}MHz)"
+                            freq_explanation = f"Frequency shift differs from expected ({actual_shift/1e6:.1f}MHz vs {expected_freq_shift/1e6:.1f}MHz)"
                     else:
-                        freq_explanation = f"הסטות תדר מעורבות ({len(unique_freq_shifts)} הסטות שונות)"
+                        freq_explanation = f"Mixed frequency shifts ({len(unique_freq_shifts)} different shifts)"
                 
-                # בדיקת עקביות מספר המופעים
+                # Check consistency of instance count
                 consistency_accuracy = 100.0
                 consistency_explanation = ""
                 
                 instances_count = len(packet_times)
                 if instances_count >= 2:
-                    consistency_explanation = f"מספר מופעים עקבי ({instances_count} מופעים)"
+                    consistency_explanation = f"Consistent instances ({instances_count} instances)"
                 elif instances_count == 1:
-                    consistency_explanation = "מופע יחיד - לא ניתן לבדוק עקביות"
+                    consistency_explanation = "Single instance - cannot validate consistency"
                     consistency_accuracy = 80.0  # Slight reduction for single instance
                 
                 validation_results.append({
@@ -1279,7 +1279,7 @@ class UnifiedVectorApp:
                     }
                 })
         
-        # חישוב דיוק כללי מתקדם
+        # Calculate overall advanced accuracy
         if not validation_results:
             return "No packets to validate", []
         
@@ -1287,7 +1287,7 @@ class UnifiedVectorApp:
         valid_packets = 0
         
         for result in validation_results:
-            # דיוק משוקלל מתקדם - מספר פקטות לא מוריד את הציון
+            # Advanced weighted accuracy - packet count doesn't lower the score
             packet_accuracy = (
                 result['period_accuracy'] * 0.4 +      # 40% period accuracy
                 result['start_accuracy'] * 0.3 +       # 30% start time accuracy
@@ -1295,7 +1295,7 @@ class UnifiedVectorApp:
                 result['consistency_accuracy'] * 0.1   # 10% consistency
             )
             
-            # בונוס עבור מספר פקטות גבוה (יותר פקטות = יותר מהימנות)
+            # Bonus for high packet count (more packets = more reliability)
             if result['instances'] > 2:
                 reliability_bonus = min(5.0, (result['instances'] - 2) * 1.0)  # Up to 5% bonus
                 packet_accuracy = min(100.0, packet_accuracy + reliability_bonus)
@@ -1305,7 +1305,7 @@ class UnifiedVectorApp:
         
         overall_accuracy = total_accuracy / valid_packets if valid_packets > 0 else 0
         
-        # הכנת טקסט קצר לכותרת
+        # Prepare short text for title
         if overall_accuracy > 99.5:
             status = "✅ PERFECT"
         elif overall_accuracy > 99.0:
@@ -1317,7 +1317,7 @@ class UnifiedVectorApp:
         else:
             status = "❌ POOR"
         
-        # הדפסת פרטים מפורטים לטרמינל
+        # Print detailed results to terminal
         print("\n" + "="*80)
         print("🔍 ENHANCED PACKET TIMING VALIDATION RESULTS")
         print("="*80)
