@@ -297,24 +297,64 @@ class ModernPacketExtractor:
     def on_quality_preset_change(self, choice):
         """Update quality controls based on preset selection - optimized for heavy packets"""
         if choice == "Fast":
-            self.max_samples.set(2_000_000)  # Increased for heavy packets
-            self.time_resolution.set(20.0)   # Faster for heavy packets
+            self.max_samples.set(1_000_000)  # Much lower for speed
+            self.time_resolution.set(50.0)   # Much faster for heavy packets
             self.adaptive_mode.set(True)
             self.heavy_packet_mode.set(True)
-            self.quality_info_label.configure(text="⚡ Fast: Optimized for heavy packets")
+            self.quality_info_label.configure(text="⚡ Fast: Maximum speed for heavy packets")
         elif choice == "Balanced":
-            self.max_samples.set(5_000_000)  # Much higher for heavy packets
+            self.max_samples.set(2_000_000)  # Balanced for heavy packets
+            self.time_resolution.set(25.0)
+            self.adaptive_mode.set(True)
+            self.heavy_packet_mode.set(True)
+            self.quality_info_label.configure(text="⚖️ Balanced: Good balance for heavy packets")
+        elif choice == "High Quality":
+            self.max_samples.set(5_000_000)  # Reduced maximum for speed
             self.time_resolution.set(10.0)
             self.adaptive_mode.set(True)
             self.heavy_packet_mode.set(True)
-            self.quality_info_label.configure(text="⚖️ Balanced: Good quality for heavy packets")
-        elif choice == "High Quality":
-            self.max_samples.set(10_000_000)  # Maximum for heavy packets
-            self.time_resolution.set(5.0)
-            self.adaptive_mode.set(True)
-            self.heavy_packet_mode.set(True)
-            self.quality_info_label.configure(text="🔬 High Quality: Best resolution for heavy packets")
+            self.quality_info_label.configure(text="🔬 High Quality: Best quality for heavy packets")
         self.test_button.configure(state="disabled") # Disable test button until file is loaded
+        
+    def auto_adjust_quality_settings(self, signal_length, file_size_mb):
+        """Auto-adjust quality settings based on file characteristics"""
+        print(f"📊 Auto-adjusting quality settings for {signal_length:,} samples ({file_size_mb:.1f}MB)")
+        
+        # Determine appropriate settings based on signal characteristics
+        duration_sec = signal_length / 56e6  # Assume 56MHz sample rate
+        
+        if signal_length <= 1_000_000:  # Small files (< 1M samples)
+            recommended_preset = "High Quality"
+            max_samples = 2_000_000
+            time_resolution = 5.0
+            info_text = "🔬 High Quality: Small file detected"
+        elif signal_length <= 5_000_000:  # Medium files (1-5M samples)
+            recommended_preset = "Balanced"  
+            max_samples = 2_000_000
+            time_resolution = 15.0
+            info_text = "⚖️ Balanced: Medium file detected"
+        elif signal_length <= 20_000_000:  # Large files (5-20M samples)
+            recommended_preset = "Fast"
+            max_samples = 1_000_000
+            time_resolution = 30.0
+            info_text = "⚡ Fast: Large file detected"
+        else:  # Very large files (>20M samples)
+            recommended_preset = "Fast"
+            max_samples = 500_000
+            time_resolution = 50.0
+            info_text = "⚡ Fast: Very large file - maximum optimization"
+        
+        # Update the settings
+        self.quality_preset.set(recommended_preset)
+        self.max_samples.set(max_samples)
+        self.time_resolution.set(time_resolution)
+        self.quality_info_label.configure(text=info_text)
+        
+        # Enable heavy packet mode for large files
+        if signal_length > 5_000_000:
+            self.heavy_packet_mode.set(True)
+            
+        print(f"✅ Settings updated: {recommended_preset} preset, {max_samples:,} max samples, {time_resolution}μs resolution")
         
     def test_current_quality(self):
         """Test the current quality settings"""
@@ -500,6 +540,10 @@ class ModernPacketExtractor:
             self.signal_length_label.configure(
                 text=f"Signal Length: {len(self.signal):,} samples"
             )
+            
+            # Auto-adjust quality settings based on file characteristics
+            self.auto_adjust_quality_settings(len(self.signal), file_size)
+            
             self.extract_button.configure(state="normal")
             self.test_button.configure(state="normal") # Enable test button after file is loaded
             
@@ -528,12 +572,12 @@ class ModernPacketExtractor:
             heavy_mode = self.heavy_packet_mode.get()
             
             # Heavy packet detection and optimization
-            is_heavy = len(self.signal) > 10_000_000
+            is_heavy = len(self.signal) > 5_000_000
             if is_heavy and heavy_mode:
                 print(f"🔍 Heavy packet mode activated for {len(self.signal):,} samples")
-                # Optimize parameters for heavy packets
-                max_samples = min(max_samples, 5_000_000)  # Limit for responsiveness
-                time_resolution_us = max(time_resolution_us, 10)  # Minimum 10μs
+                # Optimize parameters for heavy packets - MUCH more aggressive
+                max_samples = min(max_samples, 1_000_000)  # Limit to 1M for speed
+                time_resolution_us = max(time_resolution_us, 50)  # Minimum 50μs
                 print(f"📉 Using optimized parameters: max_samples={max_samples:,}, time_res={time_resolution_us}μs")
             
             if self.start_sample is None or self.end_sample is None:
@@ -545,6 +589,9 @@ class ModernPacketExtractor:
                 self._pre_buffer = buffer_samples
 
             start_time = time.time()
+            
+            # Always show GUI for packet bounds adjustment, but with optimized parameters for heavy packets
+            print(f"🔍 Opening spectrogram window with optimized settings")
             self.start_sample, self.end_sample = adjust_packet_bounds_gui(
                 self.signal,
                 sample_rate,
