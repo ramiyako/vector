@@ -468,7 +468,8 @@ class ModernPacketConfig:
         self.packet_menu = ctk.CTkOptionMenu(
             self.frame, 
             values=packet_choices if packet_choices else ["No packets available"], 
-            variable=self.packet_var
+            variable=self.packet_var,
+            command=self.on_packet_changed  # Add callback for packet selection change
         )
         self.packet_menu.pack(fill="x", padx=10, pady=5)
         if packet_choices:
@@ -498,7 +499,7 @@ class ModernPacketConfig:
         self.start_time_var = tk.StringVar(value="0")
         ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="left", padx=5)
         
-        # Action buttons
+        # Action buttons row
         buttons_frame = ctk.CTkFrame(self.frame)
         buttons_frame.pack(fill="x", padx=10, pady=5)
         
@@ -516,6 +517,67 @@ class ModernPacketConfig:
             width=120
         ).pack(side="left", padx=5)
         
+        # Add auto-calculate button to help users get reasonable defaults
+        ctk.CTkButton(
+            buttons_frame, 
+            text="Auto Calculate", 
+            command=self.auto_calculate_defaults, 
+            width=120,
+            fg_color="green",
+            hover_color="darkgreen"
+        ).pack(side="left", padx=5)
+        
+        # Initialize with reasonable defaults for the first packet
+        if packet_choices:
+            self.auto_calculate_defaults()
+    
+    def on_packet_changed(self, selected_packet):
+        """Callback when packet selection changes - auto-update defaults"""
+        print(f"Packet changed to: {selected_packet}")
+        if selected_packet and selected_packet != "No packets available":
+            self.auto_calculate_defaults()
+    
+    def auto_calculate_defaults(self):
+        """Calculate reasonable default values for the selected packet"""
+        try:
+            packet_path = self.packet_var.get()
+            if not packet_path or packet_path == "No packets available":
+                return
+            
+            # Load packet to get its characteristics
+            packet, pre_buf = load_packet_info(packet_path)
+            
+            # Calculate packet duration in milliseconds
+            packet_duration_ms = len(packet) / TARGET_SAMPLE_RATE * 1000
+            
+            # Suggest reasonable period (5-10 times the packet duration, but at least 50ms)
+            suggested_period_ms = max(50, packet_duration_ms * 5)
+            
+            # Round to nice values
+            if suggested_period_ms < 100:
+                suggested_period_ms = round(suggested_period_ms / 10) * 10  # Round to 10ms
+            else:
+                suggested_period_ms = round(suggested_period_ms / 50) * 50  # Round to 50ms
+            
+            # Update the period value
+            self.period_var.set(str(int(suggested_period_ms)))
+            
+            # Keep start time at 0 by default (users can adjust if needed)
+            self.start_time_var.set("0")
+            
+            # Keep frequency shift at 0 by default
+            self.freq_shift_var.set("0")
+            
+            print(f"Auto-calculated defaults for {os.path.basename(packet_path)}: "
+                  f"Duration={packet_duration_ms:.1f}ms, Suggested Period={suggested_period_ms}ms")
+                  
+        except Exception as e:
+            print(f"Error auto-calculating defaults: {e}")
+            # Fallback to safe defaults
+            self.period_var.set("100")
+            self.start_time_var.set("0")
+            self.freq_shift_var.set("0")
+            
     def get_config(self):
         """Get packet configuration"""
         try:
@@ -749,12 +811,19 @@ class UnifiedVectorApp:
         """Refresh packet list and update interface"""
         self.update_packet_files()
         
-        # Update all menus
+        # Update all menus and auto-calculate defaults for new packets
         for pc in self.packet_configs:
             current_values = self.packet_files if self.packet_files else ["No packets available"]
             pc.packet_menu.configure(values=current_values)
-            if self.packet_files and not pc.packet_var.get():
+            old_packet = pc.packet_var.get()
+            
+            if self.packet_files and (not pc.packet_var.get() or pc.packet_var.get() == "No packets available"):
                 pc.packet_var.set(self.packet_files[0])
+                # Auto-calculate defaults for the newly selected packet
+                pc.auto_calculate_defaults()
+            elif self.packet_files and old_packet in self.packet_files:
+                # Packet still exists, but recalculate in case file changed
+                pc.auto_calculate_defaults()
                 
         # Also refresh the extractor's packet list if it exists
         if hasattr(self, 'packet_extractor') and hasattr(self.packet_extractor, 'refresh_packet_list'):
@@ -766,12 +835,25 @@ class UnifiedVectorApp:
         """Auto-refresh packets without showing message"""
         self.update_packet_files()
         
-        # Update all menus silently
+        # Update all menus silently and auto-calculate defaults for new packets
         for pc in self.packet_configs:
             current_values = self.packet_files if self.packet_files else ["No packets available"]
             pc.packet_menu.configure(values=current_values)
-            if self.packet_files and not pc.packet_var.get():
+            old_packet = pc.packet_var.get()
+            
+            if self.packet_files and (not pc.packet_var.get() or pc.packet_var.get() == "No packets available"):
                 pc.packet_var.set(self.packet_files[0])
+                # Auto-calculate defaults for the newly selected packet
+                try:
+                    pc.auto_calculate_defaults()
+                except Exception as e:
+                    print(f"Error auto-calculating defaults during refresh: {e}")
+            elif self.packet_files and old_packet in self.packet_files:
+                # Packet still exists, but recalculate in case file changed
+                try:
+                    pc.auto_calculate_defaults()
+                except Exception as e:
+                    print(f"Error recalculating defaults during refresh: {e}")
                 
         # Also refresh the extractor's packet list if it exists
         if hasattr(self, 'packet_extractor') and hasattr(self.packet_extractor, 'refresh_packet_list'):
