@@ -159,8 +159,8 @@ def compute_freq_ranges(shifts, margin=1e6):
     return [(freq_min, freq_max)]
 
 def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resolution_us=1, adaptive_resolution=True):
-    """Creates ultra-high-resolution spectrogram from signal for detailed packet analysis.
-    Optimized for heavy packets (1 second @ 56MHz = 56M samples).
+    """Creates optimized spectrogram from signal for fast packet analysis.
+    Heavily optimized for heavy packets (1 second @ 56MHz = 56M samples).
 
     Parameters
     ----------
@@ -171,7 +171,7 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     center_freq : float, optional
         Center frequency for shifting the axis.
     max_samples : int, optional
-        Downsample if signal is longer than this. For heavy packets, use up to 10M.
+        Downsample if signal is longer than this. For heavy packets, use up to 2M.
     time_resolution_us : int, optional
         Desired time resolution in microseconds. Defaults to 1us for fine detail.
     adaptive_resolution : bool, optional
@@ -180,13 +180,13 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     if len(sig) == 0:
         raise ValueError("Signal is empty")
     
-    # Heavy packet detection - for signals > 10M samples
-    is_heavy_packet = len(sig) > 10_000_000
+    # Heavy packet detection - for signals > 5M samples
+    is_heavy_packet = len(sig) > 5_000_000
     if is_heavy_packet:
         print(f"🔍 Heavy packet detected: {len(sig):,} samples ({len(sig)/sr:.2f}s)")
-        # More aggressive downsampling for heavy packets
-        max_samples = min(max_samples, 5_000_000)  # Limit to 5M samples
-        time_resolution_us = max(time_resolution_us, 5)  # Minimum 5μs resolution
+        # MUCH more aggressive downsampling for heavy packets
+        max_samples = min(max_samples, 1_000_000)  # Limit to 1M samples for speed
+        time_resolution_us = max(time_resolution_us, 20)  # Minimum 20μs resolution
     
     # Preserve more data for better resolution
     if len(sig) > max_samples:
@@ -202,29 +202,35 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     # Calculate signal duration
     signal_duration_us = len(sig) / fs * 1e6
     
-    # Clean spectrogram calculation - optimized for clear packet visualization
+    # Fast spectrogram calculation - optimized for speed on heavy packets
     if adaptive_resolution:
-        # Use smaller windows for cleaner spectrograms
+        # Use smaller windows for faster computation
         if signal_duration_us <= 50:  # Very short signals (≤50μs)
-            base_window = max(32, min(len(sig) // 12, 256))
-            time_resolution_us = min(time_resolution_us, signal_duration_us / 15)
-            freq_resolution_factor = 1.5
+            base_window = max(32, min(len(sig) // 12, 128))
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 10)
+            freq_resolution_factor = 1.2
         elif signal_duration_us <= 500:  # Short signals (≤500μs)
-            base_window = max(64, min(len(sig) // 10, 512))
-            time_resolution_us = min(time_resolution_us, signal_duration_us / 25)
-            freq_resolution_factor = 1.5
+            base_window = max(64, min(len(sig) // 10, 256))
+            time_resolution_us = min(time_resolution_us, signal_duration_us / 20)
+            freq_resolution_factor = 1.2
         elif signal_duration_us <= 5000:  # Medium signals (≤5ms)
-            base_window = max(128, min(len(sig) // 8, 1024))
-            time_resolution_us = min(time_resolution_us, 5)
-            freq_resolution_factor = 2
-        else:  # Long signals (>5ms)
-            base_window = max(256, min(len(sig) // 6, 2048))
+            base_window = max(128, min(len(sig) // 8, 512))
             time_resolution_us = min(time_resolution_us, 10)
-            freq_resolution_factor = 2
+            freq_resolution_factor = 1.5
+        else:  # Long signals (>5ms) - prioritize speed
+            base_window = max(256, min(len(sig) // 6, 1024))
+            time_resolution_us = min(time_resolution_us, 20)
+            freq_resolution_factor = 1.5
+            
+            # Extra optimization for heavy packets
+            if is_heavy_packet:
+                base_window = min(base_window, 512)  # Limit window size for speed
+                time_resolution_us = max(time_resolution_us, 50)  # Minimum 50μs for heavy packets
+                freq_resolution_factor = 1.2
     else:
-        # Clean defaults for better visualization
-        base_window = max(128, min(len(sig) // 8, 1024))
-        freq_resolution_factor = 1.5
+        # Fast defaults for better performance
+        base_window = max(128, min(len(sig) // 8, 512))
+        freq_resolution_factor = 1.2
 
     # Calculate optimal window size and step
     if time_resolution_us is not None:
@@ -236,25 +242,46 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
         step_samples = max(1, step_samples)
         
         # Window should be at least 2x step size for good overlap
-        window_size = max(base_window, step_samples * 3)
+        window_size = max(base_window, step_samples * 2)  # Reduced from 3x to 2x for speed
         window_size = min(window_size, len(sig))
         
-        # Calculate overlap
-        overlap = max(0, window_size - step_samples)
+        # Calculate overlap - optimize for heavy packets
+        if is_heavy_packet:
+            overlap = max(0, window_size - step_samples * 2)  # Less overlap for speed
+        else:
+            overlap = max(0, window_size - step_samples)
     else:
         window_size = min(base_window, len(sig))
-        overlap = int(window_size * 0.90)  # 90% overlap
+        # Reduce overlap for heavy packets
+        if is_heavy_packet:
+            overlap = int(window_size * 0.75)  # 75% overlap instead of 90%
+        else:
+            overlap = int(window_size * 0.90)  # 90% overlap
 
-    # Optimized NFFT for clean visualization
+    # Optimized NFFT for fast computation
     nfft = max(256, int(2 ** np.ceil(np.log2(window_size * freq_resolution_factor))))
-    nfft = max(nfft, 512)  # Minimum NFFT - smaller for cleaner display
+    
+    # Optimize NFFT for heavy packets - prioritize speed
+    if is_heavy_packet:
+        nfft = min(nfft, 1024)  # Limit NFFT for heavy packets
+    else:
+        nfft = max(nfft, 512)  # Minimum NFFT for normal packets
 
     # Create spectrogram with error handling
     try:
+        # Use faster window for heavy packets
+        if is_heavy_packet:
+            window_func = 'hann'  # Faster than blackmanharris
+        else:
+            window_func = 'blackmanharris'  # Better quality for normal packets
+            
+        import time
+        start_time = time.time()
+        
         freqs, times, Sxx = scipy.signal.spectrogram(
             sig,
             fs=fs,
-            window='blackmanharris',     # Excellent sidelobe suppression for clear spectral lines
+            window=window_func,
             nperseg=window_size,
             noverlap=overlap,
             nfft=nfft,
@@ -262,6 +289,12 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
             detrend=False,               # Don't detrend - can cause issues with sparse signals
             scaling='spectrum'           # Use spectrum instead of density for better visualization
         )
+        
+        spectrogram_time = time.time() - start_time
+        if is_heavy_packet:
+            print(f"⚡ Spectrogram created in {spectrogram_time:.2f}s for heavy packet")
+        else:
+            print(f"✅ Spectrogram created in {spectrogram_time:.2f}s")
     except Exception as e:
         # Fallback to basic parameters if advanced settings fail
         window_size = min(256, len(sig))
