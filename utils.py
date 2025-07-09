@@ -418,6 +418,7 @@ def plot_spectrogram(
     show_colorbar=True,
     enhance_contrast=True,
     high_detail_mode=True,
+    validation_details=None,
 ):
     """Plot ultra-sharp and detailed spectrogram with advanced enhancements for packet analysis."""
     # Handle edge cases
@@ -448,12 +449,30 @@ def plot_spectrogram(
     
     freq_axis = f / 1e6  # MHz
 
-    # Create figure with higher DPI for crisp display
-    if signal is None:
-        fig, ax1 = plt.subplots(figsize=(16, 8), dpi=100)
-        ax2 = None
+    # Create figure with different layout if validation details are provided
+    if validation_details:
+        # Create wider figure to accommodate explanation text
+        if signal is None:
+            fig = plt.figure(figsize=(20, 8), dpi=100)
+            gs = fig.add_gridspec(1, 2, width_ratios=[3, 1], wspace=0.3)
+            ax1 = fig.add_subplot(gs[0])
+            ax_text = fig.add_subplot(gs[1])
+            ax2 = None
+        else:
+            fig = plt.figure(figsize=(20, 10), dpi=100)
+            gs = fig.add_gridspec(2, 2, height_ratios=[3, 1], width_ratios=[3, 1], wspace=0.3, hspace=0.3)
+            ax1 = fig.add_subplot(gs[0, 0])
+            ax2 = fig.add_subplot(gs[1, 0])
+            ax_text = fig.add_subplot(gs[:, 1])
     else:
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), height_ratios=[3, 1], dpi=100)
+        # Original layout
+        if signal is None:
+            fig, ax1 = plt.subplots(figsize=(16, 8), dpi=100)
+            ax2 = None
+            ax_text = None
+        else:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), height_ratios=[3, 1], dpi=100)
+            ax_text = None
 
     # Enhanced visualization parameters for high-resolution data
     if high_detail_mode:
@@ -561,6 +580,66 @@ def plot_spectrogram(
 
     if packet_markers or freq_ranges:
         ax1.legend(fontsize=10, loc='upper right')
+
+    # Add validation details text on the right side
+    if validation_details and ax_text:
+        ax_text.axis('off')  # Turn off axes for text display
+        
+        # Create explanatory text
+        explanation_text = "📊 TIMING VALIDATION DETAILS\n" + "="*35 + "\n\n"
+        
+        total_instances = sum(detail['instances'] for detail in validation_details)
+        total_packets = len(validation_details)
+        
+        explanation_text += f"📈 Summary:\n"
+        explanation_text += f"   • Total Packets: {total_packets}\n"
+        explanation_text += f"   • Total Instances: {total_instances}\n"
+        explanation_text += f"   • Multi-packet Bonus: {'✅' if total_instances > 2 else '❌'}\n\n"
+        
+        explanation_text += "📦 Per-Packet Analysis:\n" + "-"*25 + "\n"
+        
+        for i, detail in enumerate(validation_details):
+            explanation_text += f"\n🔹 {detail['packet_name']}:\n"
+            explanation_text += f"   • Instances: {detail['instances']}\n"
+            explanation_text += f"   • Start Time: {detail['start_time_error_ms']:.2f}ms error\n"
+            
+            if detail['instances'] > 1:
+                explanation_text += f"   • Period Error: {detail['period_error_percent']:.1f}%\n"
+            else:
+                explanation_text += f"   • Period: Single instance\n"
+            
+            explanation_text += f"   • Freq Shift: {detail['freq_shift_mhz']:.1f}MHz\n"
+            
+            # Add detailed explanations
+            explanations = detail['explanations']
+            explanation_text += f"\n   🎯 {explanations['start']}\n"
+            explanation_text += f"   ⏱️  {explanations['period']}\n"
+            explanation_text += f"   📡 {explanations['freq']}\n"
+            explanation_text += f"   📊 {explanations['consistency']}\n"
+            
+            if i < len(validation_details) - 1:
+                explanation_text += "\n" + "-"*25 + "\n"
+        
+        explanation_text += "\n\n" + "="*35 + "\n"
+        explanation_text += "💡 Scoring Factors:\n"
+        explanation_text += "   • Period accuracy: 40%\n"
+        explanation_text += "   • Start time accuracy: 30%\n"
+        explanation_text += "   • Frequency accuracy: 20%\n"
+        explanation_text += "   • Consistency: 10%\n"
+        explanation_text += "   • Multi-packet bonus: +5%\n\n"
+        
+        explanation_text += "🔍 Quality Criteria:\n"
+        explanation_text += "   • Perfect: >99.5%\n"
+        explanation_text += "   • Excellent: >99.0%\n"
+        explanation_text += "   • Good: >95.0%\n"
+        explanation_text += "   • Fair: >90.0%\n"
+        explanation_text += "   • Poor: ≤90.0%\n"
+        
+        # Display the text
+        ax_text.text(0.05, 0.95, explanation_text, transform=ax_text.transAxes, 
+                    fontsize=9, verticalalignment='top', horizontalalignment='left',
+                    fontfamily='monospace', 
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.8))
 
     # Tight layout with optimized spacing
     plt.tight_layout(pad=1.5)

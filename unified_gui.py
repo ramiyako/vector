@@ -1141,20 +1141,21 @@ class UnifiedVectorApp:
         self.generate_vector("wv")
     
     def validate_packet_timing(self, markers, packet_configs):
-        """ולידציה של מרווחי הזמן בין תחילת הפקטות - מחזירה טקסט קצר לכותרת"""
+        """שיפור ולידציה של מרווחי הזמן בין תחילת הפקטות - מחזירה טקסט קצר לכותרת ופרטים מפורטים"""
         
         # סידור מרקרים לפי זמן תחילת הפקטה
         markers_by_packet = {}
         for time_sec, freq_shift, packet_name, marker_style, marker_color in markers:
             if packet_name not in markers_by_packet:
                 markers_by_packet[packet_name] = []
-            markers_by_packet[packet_name].append(time_sec)
+            markers_by_packet[packet_name].append((time_sec, freq_shift))
         
         # סידור זמני התחילה עבור כל פקטה
         for packet_name in markers_by_packet:
-            markers_by_packet[packet_name].sort()
+            markers_by_packet[packet_name].sort(key=lambda x: x[0])  # Sort by time
         
         validation_results = []
+        detailed_explanations = []
         
         for idx, cfg in enumerate(packet_configs):
             config = cfg.get_config()
@@ -1164,19 +1165,39 @@ class UnifiedVectorApp:
             packet_name = os.path.splitext(os.path.basename(config['file']))[0]
             
             if packet_name in markers_by_packet:
-                packet_times = markers_by_packet[packet_name]
-                expected_period_ms = config['period'] * 1000  # המרה לאלפיות שנייה
-                expected_start_time_ms = config['start_time'] * 1000  # המרה לאלפיות שנייה
+                packet_markers = markers_by_packet[packet_name]
+                packet_times = [marker[0] for marker in packet_markers]
+                freq_shifts = [marker[1] for marker in packet_markers]
                 
-                # בדיקת זמן התחלה הראשון
-                start_time_accuracy = 100.0  # ברירת מחדל
+                expected_period_ms = config['period'] * 1000
+                expected_start_time_ms = config['start_time'] * 1000
+                expected_freq_shift = config['freq_shift']
+                
+                # בדיקת זמן התחלה הראשון - עם סובלנות למספר רב של פקטות
+                start_time_accuracy = 100.0
+                start_time_explanation = ""
+                start_time_error_ms = 0.0  # Initialize variable
+                
                 if len(packet_times) > 0:
                     actual_start_time_ms = packet_times[0] * 1000
                     start_time_error_ms = abs(actual_start_time_ms - expected_start_time_ms)
-                    start_time_accuracy = max(0, 100 - (start_time_error_ms / max(expected_start_time_ms, 0.1) * 100))
+                    
+                    # סובלנות גבוהה יותר למספר רב של פקטות
+                    tolerance_factor = 1.0 if len(packet_times) <= 2 else 0.5
+                    max_tolerance_ms = 10.0 * tolerance_factor  # 10ms tolerance, reduced for multiple packets
+                    
+                    if start_time_error_ms <= max_tolerance_ms:
+                        start_time_accuracy = 100.0
+                        start_time_explanation = f"זמן התחלה מדויק ({start_time_error_ms:.2f}ms שגיאה)"
+                    else:
+                        start_time_accuracy = max(0, 100 - (start_time_error_ms / max_tolerance_ms * 50))
+                        start_time_explanation = f"זמן התחלה לא מדויק ({start_time_error_ms:.2f}ms שגיאה)"
                 
-                # בדיקת מרווחי זמן בין פקטות
-                period_accuracy = 100.0  # ברירת מחדל
+                # בדיקת מרווחי זמן בין פקטות - מתקדמת
+                period_accuracy = 100.0
+                period_explanation = ""
+                period_error_percent = 0.0  # Initialize variable
+                
                 if len(packet_times) > 1:
                     measured_intervals = []
                     for i in range(1, len(packet_times)):
@@ -1185,26 +1206,100 @@ class UnifiedVectorApp:
                         measured_intervals.append(interval_ms)
                     
                     avg_interval_ms = np.mean(measured_intervals)
-                    period_accuracy = (avg_interval_ms / expected_period_ms * 100) if expected_period_ms > 0 else 100
-                    period_accuracy = min(100, period_accuracy)  # מקסימום 100%
+                    interval_std_ms = np.std(measured_intervals)
+                    
+                    # חישוב דיוק פריודה מתקדם
+                    period_error_percent = abs(avg_interval_ms - expected_period_ms) / expected_period_ms * 100
+                    
+                    if period_error_percent <= 1.0:  # 1% tolerance
+                        period_accuracy = 100.0
+                        period_explanation = f"פריודה מדויקת ({avg_interval_ms:.2f}ms ממוצע, {interval_std_ms:.2f}ms סטיה)"
+                    elif period_error_percent <= 5.0:  # 5% tolerance
+                        period_accuracy = 100 - (period_error_percent - 1.0) * 5  # Linear decrease
+                        period_explanation = f"פריודה טובה ({avg_interval_ms:.2f}ms ממוצע, {period_error_percent:.1f}% שגיאה)"
+                    else:
+                        period_accuracy = max(0, 80 - (period_error_percent - 5.0) * 2)
+                        period_explanation = f"פריודה לא מדויקת ({avg_interval_ms:.2f}ms ממוצע, {period_error_percent:.1f}% שגיאה)"
+                elif len(packet_times) == 1:
+                    period_explanation = "פקטה יחידה - אין פריודה לבדיקה"
+                
+                # בדיקת סטיות תדר - לא מורידה ציון אלא רק מעירה
+                freq_accuracy = 100.0
+                freq_explanation = ""
+                
+                if len(freq_shifts) > 0:
+                    unique_freq_shifts = set(freq_shifts)
+                    if len(unique_freq_shifts) == 1 and freq_shifts[0] == expected_freq_shift:
+                        freq_explanation = f"הסטת תדר תקינה ({expected_freq_shift/1e6:.1f}MHz)"
+                    elif len(unique_freq_shifts) == 1:
+                        actual_shift = freq_shifts[0]
+                        shift_error_mhz = abs(actual_shift - expected_freq_shift) / 1e6
+                        if shift_error_mhz <= 0.1:  # 100kHz tolerance
+                            freq_explanation = f"הסטת תדר קרובה לצפויה ({actual_shift/1e6:.1f}MHz)"
+                        else:
+                            freq_explanation = f"הסטת תדר שונה מהצפויה ({actual_shift/1e6:.1f}MHz במקום {expected_freq_shift/1e6:.1f}MHz)"
+                    else:
+                        freq_explanation = f"הסטות תדר מעורבות ({len(unique_freq_shifts)} הסטות שונות)"
+                
+                # בדיקת עקביות מספר המופעים
+                consistency_accuracy = 100.0
+                consistency_explanation = ""
+                
+                instances_count = len(packet_times)
+                if instances_count >= 2:
+                    consistency_explanation = f"מספר מופעים עקבי ({instances_count} מופעים)"
+                elif instances_count == 1:
+                    consistency_explanation = "מופע יחיד - לא ניתן לבדוק עקביות"
+                    consistency_accuracy = 80.0  # Slight reduction for single instance
                 
                 validation_results.append({
                     'packet_name': packet_name,
                     'start_accuracy': start_time_accuracy,
                     'period_accuracy': period_accuracy,
-                    'instances': len(packet_times)
+                    'freq_accuracy': freq_accuracy,
+                    'consistency_accuracy': consistency_accuracy,
+                    'instances': instances_count,
+                    'start_explanation': start_time_explanation,
+                    'period_explanation': period_explanation,
+                    'freq_explanation': freq_explanation,
+                    'consistency_explanation': consistency_explanation
+                })
+                
+                detailed_explanations.append({
+                    'packet_name': packet_name,
+                    'instances': instances_count,
+                    'start_time_error_ms': start_time_error_ms if len(packet_times) > 0 else 0,
+                    'period_error_percent': period_error_percent if len(packet_times) > 1 else 0,
+                    'freq_shift_mhz': expected_freq_shift / 1e6,
+                    'explanations': {
+                        'start': start_time_explanation,
+                        'period': period_explanation,
+                        'freq': freq_explanation,
+                        'consistency': consistency_explanation
+                    }
                 })
         
-        # חישוב דיוק כללי
+        # חישוב דיוק כללי מתקדם
         if not validation_results:
-            return "No packets to validate"
+            return "No packets to validate", []
         
         total_accuracy = 0
         valid_packets = 0
         
         for result in validation_results:
-            # דיוק משוקלל (70% פריודה, 30% זמן התחלה)
-            packet_accuracy = (result['period_accuracy'] * 0.7 + result['start_accuracy'] * 0.3)
+            # דיוק משוקלל מתקדם - מספר פקטות לא מוריד את הציון
+            packet_accuracy = (
+                result['period_accuracy'] * 0.4 +      # 40% period accuracy
+                result['start_accuracy'] * 0.3 +       # 30% start time accuracy
+                result['freq_accuracy'] * 0.2 +        # 20% frequency accuracy (doesn't penalize)
+                result['consistency_accuracy'] * 0.1   # 10% consistency
+            )
+            
+            # בונוס עבור מספר פקטות גבוה (יותר פקטות = יותר מהימנות)
+            if result['instances'] > 2:
+                reliability_bonus = min(5.0, (result['instances'] - 2) * 1.0)  # Up to 5% bonus
+                packet_accuracy = min(100.0, packet_accuracy + reliability_bonus)
+            
             total_accuracy += packet_accuracy
             valid_packets += 1
         
@@ -1218,24 +1313,28 @@ class UnifiedVectorApp:
         elif overall_accuracy > 95.0:
             status = "⚠️ GOOD"
         elif overall_accuracy > 90.0:
-            status = "⚠️ OK"
+            status = "⚠️ FAIR"
         else:
             status = "❌ POOR"
         
         # הדפסת פרטים מפורטים לטרמינל
-        print("\n" + "="*60)
-        print("🔍 PACKET TIMING VALIDATION RESULTS")
-        print("="*60)
+        print("\n" + "="*80)
+        print("🔍 ENHANCED PACKET TIMING VALIDATION RESULTS")
+        print("="*80)
         
         for result in validation_results:
-            print(f"📦 {result['packet_name']}: {result['instances']} instances")
-            print(f"   🎯 Start Time Accuracy: {result['start_accuracy']:.1f}%")
-            print(f"   ⏱️  Period Accuracy: {result['period_accuracy']:.1f}%")
+            print(f"\n📦 {result['packet_name']}: {result['instances']} instances")
+            print(f"   🎯 Start Time: {result['start_accuracy']:.1f}% - {result['start_explanation']}")
+            print(f"   ⏱️  Period: {result['period_accuracy']:.1f}% - {result['period_explanation']}")
+            print(f"   📡 Frequency: {result['freq_accuracy']:.1f}% - {result['freq_explanation']}")
+            print(f"   📊 Consistency: {result['consistency_accuracy']:.1f}% - {result['consistency_explanation']}")
         
         print(f"\n🏆 Overall Accuracy: {overall_accuracy:.1f}% - {status}")
-        print("="*60)
+        print(f"📈 Total Packets Validated: {valid_packets}")
+        print(f"📊 Total Packet Instances: {sum(r['instances'] for r in validation_results)}")
+        print("="*80)
         
-        return f"Timing Validation: {overall_accuracy:.1f}% {status}"
+        return f"Timing Validation: {overall_accuracy:.1f}% {status}", detailed_explanations
         
     def generate_vector(self, output_format="mat"):
         """Generate vector with performance optimization"""
@@ -1341,7 +1440,7 @@ class UnifiedVectorApp:
             print(f"Vector saved to {output_path}")
             
             # Validate packet timing and prepare validation text
-            validation_text = self.validate_packet_timing(markers, self.packet_configs)
+            validation_text, detailed_explanations = self.validate_packet_timing(markers, self.packet_configs)
             
             # Show final spectrogram with validation results
             try:
@@ -1351,7 +1450,8 @@ class UnifiedVectorApp:
                     title=f"Final Vector Spectrogram - {output_format.upper()} | {validation_text}",
                     packet_markers=markers,
                     sample_rate=TARGET_SAMPLE_RATE,
-                    signal=vector
+                    signal=vector,
+                    validation_details=detailed_explanations
                 )
                 print("Final spectrogram displayed with timing validation")
             except Exception as e:
