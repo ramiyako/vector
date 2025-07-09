@@ -353,7 +353,7 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     return freqs, times, Sxx
 
 
-def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dynamic_range=40):
+def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dynamic_range=25):
     """Normalize spectrogram for clean packet visualization with optimized dynamic range."""
     # Handle edge cases
     if Sxx.size == 0:
@@ -399,7 +399,7 @@ def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dy
     
     # Add debug info for dynamic range optimization
     if actual_range != vmax - vmin:
-        print(f"📊 Dynamic range adjusted: {actual_range:.1f}dB → {vmax - vmin:.1f}dB")
+        print(f"📊 Dynamic range adjusted: {actual_range:.1f}dB → {vmax - vmin:.1f}dB (optimized for resolution)")
     
     return Sxx_db, vmin, vmax
 
@@ -426,8 +426,8 @@ def plot_spectrogram(
         return
     
     if enhance_contrast:
-        # Enhanced normalization for better packet detail visibility
-        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=95, max_dynamic_range=40)
+        # Enhanced normalization for better packet detail visibility with focused dynamic range
+        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, low_percentile=5, high_percentile=95, max_dynamic_range=25)
     else:
         Sxx_db, vmin, vmax = normalize_spectrogram(Sxx)
     

@@ -99,7 +99,7 @@ def test_dynamic_range_optimization():
         f, t, Sxx = create_spectrogram(signal, 56e6, max_samples=1_000_000)
         
         # Test dynamic range normalization
-        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, max_dynamic_range=40)
+        Sxx_db, vmin, vmax = normalize_spectrogram(Sxx, max_dynamic_range=25)
         
         dynamic_range = vmax - vmin
         print(f"   Original shape: {Sxx.shape}")
@@ -107,7 +107,7 @@ def test_dynamic_range_optimization():
         print(f"   vmin: {vmin:.1f} dB, vmax: {vmax:.1f} dB")
         
         # Verify dynamic range is reasonable
-        if 20 <= dynamic_range <= 40:
+        if 20 <= dynamic_range <= 25:
             print("   ✅ PASS: Dynamic range is optimal")
         elif dynamic_range < 20:
             print("   ⚠️  LOW: Dynamic range might be too narrow")
