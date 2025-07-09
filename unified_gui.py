@@ -316,6 +316,46 @@ class ModernPacketExtractor:
             self.quality_info_label.configure(text="🔬 High Quality: Best quality for heavy packets")
         self.test_button.configure(state="disabled") # Disable test button until file is loaded
         
+    def auto_adjust_quality_settings(self, signal_length, file_size_mb):
+        """Auto-adjust quality settings based on file characteristics"""
+        print(f"📊 Auto-adjusting quality settings for {signal_length:,} samples ({file_size_mb:.1f}MB)")
+        
+        # Determine appropriate settings based on signal characteristics
+        duration_sec = signal_length / 56e6  # Assume 56MHz sample rate
+        
+        if signal_length <= 1_000_000:  # Small files (< 1M samples)
+            recommended_preset = "High Quality"
+            max_samples = 2_000_000
+            time_resolution = 5.0
+            info_text = "🔬 High Quality: Small file detected"
+        elif signal_length <= 5_000_000:  # Medium files (1-5M samples)
+            recommended_preset = "Balanced"  
+            max_samples = 2_000_000
+            time_resolution = 15.0
+            info_text = "⚖️ Balanced: Medium file detected"
+        elif signal_length <= 20_000_000:  # Large files (5-20M samples)
+            recommended_preset = "Fast"
+            max_samples = 1_000_000
+            time_resolution = 30.0
+            info_text = "⚡ Fast: Large file detected"
+        else:  # Very large files (>20M samples)
+            recommended_preset = "Fast"
+            max_samples = 500_000
+            time_resolution = 50.0
+            info_text = "⚡ Fast: Very large file - maximum optimization"
+        
+        # Update the settings
+        self.quality_preset.set(recommended_preset)
+        self.max_samples.set(max_samples)
+        self.time_resolution.set(time_resolution)
+        self.quality_info_label.configure(text=info_text)
+        
+        # Enable heavy packet mode for large files
+        if signal_length > 5_000_000:
+            self.heavy_packet_mode.set(True)
+            
+        print(f"✅ Settings updated: {recommended_preset} preset, {max_samples:,} max samples, {time_resolution}μs resolution")
+        
     def test_current_quality(self):
         """Test the current quality settings"""
         if self.signal is None:
@@ -500,6 +540,10 @@ class ModernPacketExtractor:
             self.signal_length_label.configure(
                 text=f"Signal Length: {len(self.signal):,} samples"
             )
+            
+            # Auto-adjust quality settings based on file characteristics
+            self.auto_adjust_quality_settings(len(self.signal), file_size)
+            
             self.extract_button.configure(state="normal")
             self.test_button.configure(state="normal") # Enable test button after file is loaded
             
@@ -546,45 +590,18 @@ class ModernPacketExtractor:
 
             start_time = time.time()
             
-            # Skip GUI bounds adjustment for heavy packets - use auto detection
-            if is_heavy and heavy_mode:
-                print("🚀 Skipping GUI bounds adjustment for heavy packet - using auto detection")
-                # Use simple auto-detection for heavy packets
-                buffer_samples = int(sample_rate // 1_000_000)  # 1 MHz buffer
-                
-                # Just use the detected bounds with small buffer
-                if hasattr(self, 'detected_start') and self.detected_start is not None:
-                    self.start_sample = max(0, self.detected_start - buffer_samples)
-                    self.end_sample = min(len(self.signal), self.detected_start + int(sample_rate * 0.001))  # 1ms max
-                else:
-                    # Simple auto-detection for heavy packets
-                    signal_power = np.abs(self.signal) ** 2
-                    power_threshold = np.mean(signal_power) * 3  # 3x mean power
-                    above_threshold = signal_power > power_threshold
-                    
-                    if np.any(above_threshold):
-                        start_indices = np.where(above_threshold)[0]
-                        self.start_sample = max(0, start_indices[0] - buffer_samples)
-                        self.end_sample = min(len(self.signal), start_indices[-1] + buffer_samples)
-                    else:
-                        # Fallback to middle portion
-                        total_len = len(self.signal)
-                        self.start_sample = total_len // 4
-                        self.end_sample = 3 * total_len // 4
-                        
-                process_time = time.time() - start_time
-            else:
-                # Normal processing for smaller packets
-                self.start_sample, self.end_sample = adjust_packet_bounds_gui(
-                    self.signal,
-                    sample_rate,
-                    self.start_sample,
-                    self.end_sample,
-                    max_samples=max_samples,
-                    time_resolution_us=time_resolution_us,
-                    adaptive_resolution=adaptive_resolution
-                )
-                process_time = time.time() - start_time
+            # Always show GUI for packet bounds adjustment, but with optimized parameters for heavy packets
+            print(f"🔍 Opening spectrogram window with optimized settings")
+            self.start_sample, self.end_sample = adjust_packet_bounds_gui(
+                self.signal,
+                sample_rate,
+                self.start_sample,
+                self.end_sample,
+                max_samples=max_samples,
+                time_resolution_us=time_resolution_us,
+                adaptive_resolution=adaptive_resolution
+            )
+            process_time = time.time() - start_time
             
             # Update performance info with heavy packet indicator
             perf_text = f"Processing time: {process_time:.2f}s"

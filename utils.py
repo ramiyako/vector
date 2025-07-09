@@ -353,8 +353,8 @@ def create_spectrogram(sig, sr, center_freq=0, max_samples=2_000_000, time_resol
     return freqs, times, Sxx
 
 
-def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dynamic_range=30):
-    """Normalize spectrogram for clean packet visualization with limited dynamic range."""
+def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dynamic_range=40):
+    """Normalize spectrogram for clean packet visualization with optimized dynamic range."""
     # Handle edge cases
     if Sxx.size == 0:
         return np.array([]), 0, 0
@@ -367,10 +367,10 @@ def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dy
     
     Sxx_db = 10 * np.log10(Sxx_abs + noise_floor)
 
-    # Calculate percentiles with error handling - use tighter range for cleaner display
+    # Calculate percentiles with error handling - optimized for packet visibility
     try:
         vmin = np.percentile(Sxx_db, low_percentile)
-        vmax = np.percentile(Sxx_db, high_percentile)  # 95% instead of 98%
+        vmax = np.percentile(Sxx_db, high_percentile)
     except:
         # Fallback if percentile calculation fails
         vmin = np.min(Sxx_db)
@@ -381,14 +381,25 @@ def normalize_spectrogram(Sxx, low_percentile=10.0, high_percentile=95.0, max_dy
         vmin = np.min(Sxx_db)
         vmax = np.max(Sxx_db)
         if vmax <= vmin:
-            vmax = vmin + 30  # Smaller default range for cleaner display
+            vmax = vmin + max_dynamic_range  # Use configurable range
 
-    # Apply limited dynamic range for cleaner visualization
-    if vmax - vmin > max_dynamic_range:
-        vmin = vmax - max_dynamic_range  # 30 dB instead of 60 dB
+    # Apply optimized dynamic range for better packet visibility
+    actual_range = vmax - vmin
+    if actual_range > max_dynamic_range:
+        # Keep the upper part of the dynamic range for better signal visibility
+        vmin = vmax - max_dynamic_range
+    elif actual_range < 20:
+        # Ensure minimum 20dB range for good visibility
+        mid_point = (vmax + vmin) / 2
+        vmin = mid_point - 10
+        vmax = mid_point + 10
 
     # Ensure reasonable floor
-    vmin = max(vmin, -100)  # Not lower than -100 dB
+    vmin = max(vmin, -120)  # Allow lower floor for better noise visibility
+    
+    # Add debug info for dynamic range optimization
+    if actual_range != vmax - vmin:
+        print(f"📊 Dynamic range adjusted: {actual_range:.1f}dB → {vmax - vmin:.1f}dB")
     
     return Sxx_db, vmin, vmax
 
