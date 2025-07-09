@@ -116,7 +116,7 @@ class PacketConfig:
             messagebox.showerror("Error", f"Error showing spectrogram: {e}")
 
     def analyze_packet(self):
-        from utils import load_packet, find_packet_start, measure_packet_timing, adjust_packet_start_gui
+        from utils import load_packet, find_packet_start, measure_packet_timing, adjust_packet_bounds_gui
         file_path = self.file_var.get()
         try:
             y = load_packet(file_path)
@@ -129,7 +129,7 @@ class PacketConfig:
                 messagebox.showerror("Error", "Sample rate not found")
                 return
 
-            packet_start = adjust_packet_start_gui(y, sample_rate, packet_start)
+            packet_start = adjust_packet_bounds_gui(y, sample_rate, packet_start)
             pre_samples = packet_start
             self.pre_samples_var.set(str(pre_samples))
 
