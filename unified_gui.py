@@ -1170,12 +1170,14 @@ class PacketTransplant:
                 if not messagebox.askyesno("Warning", "Low confidence detected. Continue anyway?"):
                     return
                     
-            # Perform transplant
+            # Perform transplant with power normalization
+            self.results_text.insert("end", f"Performing transplant with power normalization...\n")
             self.transplanted_vector = transplant_packet_in_vector(
                 self.vector_signal, 
                 self.packet_signal,
                 self.analysis_results['vector_location'],
-                self.analysis_results['packet_location']
+                self.analysis_results['packet_location'],
+                normalize_power=True
             )
             
             self.results_text.insert("end", f"Transplant completed successfully!\n")
@@ -1213,6 +1215,13 @@ class PacketTransplant:
             self.results_text.insert("end", f"SNR improvement: {self.validation_results['snr_improvement_db']:.1f} dB\n")
             self.results_text.insert("end", f"Transplant duration: {self.validation_results['transplant_length_us']:.1f} μs\n")
             self.results_text.insert("end", f"Time precision: {self.validation_results['time_precision_us']:.3f} μs\n")
+            
+            # Show detailed criteria status
+            criteria = self.validation_results['criteria']
+            self.results_text.insert("end", f"\nValidation Criteria:\n")
+            self.results_text.insert("end", f"✓ Confidence: {self.validation_results['reference_confidence']:.3f} > {criteria['confidence_threshold']:.1f} = {'PASS' if criteria['confidence_ok'] else 'FAIL'}\n")
+            self.results_text.insert("end", f"✓ Power ratio: {self.validation_results['power_ratio']:.3f} > {criteria['power_ratio_threshold']:.2f} = {'PASS' if criteria['power_ok'] else 'FAIL'}\n")
+            self.results_text.insert("end", f"✓ SNR: {self.validation_results['snr_improvement_db']:.1f} > {criteria['min_snr_threshold']:.0f} dB = {'PASS' if criteria['snr_ok'] else 'FAIL'}\n")
             
             if self.validation_results['success']:
                 self.results_text.insert("end", "✓ Transplant validation PASSED\n\n")
