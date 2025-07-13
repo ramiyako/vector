@@ -23,7 +23,13 @@ from utils import (
     save_vector,
     save_vector_wv,
     detect_packet_bounds,
-    load_packet_info
+    load_packet_info,
+    cross_correlate_signals,
+    find_correlation_peak,
+    extract_reference_segment,
+    find_packet_location_in_vector,
+    transplant_packet_in_vector,
+    validate_transplant_quality
 )
 
 # Modern theme configuration
@@ -905,6 +911,349 @@ Start Time Offset: {config['start_time']*1000:.1f} ms"""
             messagebox.showerror("Error", f"Error analyzing packet: {e}")
             print(f"Error analyzing packet: {e}")
 
+
+class PacketTransplant:
+    """Modern packet transplant interface for surgical packet replacement"""
+    
+    def __init__(self, parent_frame):
+        self.parent = parent_frame
+        self.vector_signal = None
+        self.packet_signal = None
+        self.reference_segment = None
+        self.vector_sample_rate = None
+        self.packet_sample_rate = None
+        self.transplanted_vector = None
+        self.validation_results = None
+        
+        self.create_widgets()
+        
+    def create_widgets(self):
+        """Create the transplant interface widgets"""
+        # Main frame
+        main_frame = ctk.CTkFrame(self.parent)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Title
+        title_label = ctk.CTkLabel(
+            main_frame,
+            text="Packet Transplant - Surgical Packet Replacement",
+            font=ctk.CTkFont(size=24, weight="bold")
+        )
+        title_label.pack(pady=10)
+        
+        # File loading frame
+        file_frame = ctk.CTkFrame(main_frame)
+        file_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Vector file
+        vector_frame = ctk.CTkFrame(file_frame)
+        vector_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(vector_frame, text="Vector File (with problematic packet):", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=5)
+        
+        vector_buttons_frame = ctk.CTkFrame(vector_frame)
+        vector_buttons_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.vector_file_var = tk.StringVar(value="No vector file selected")
+        self.vector_file_label = ctk.CTkLabel(vector_buttons_frame, textvariable=self.vector_file_var, 
+                                            anchor="w", width=400)
+        self.vector_file_label.pack(side="left", padx=10)
+        
+        ctk.CTkButton(vector_buttons_frame, text="Browse Vector", 
+                     command=self.load_vector_file, width=120).pack(side="left", padx=5)
+        
+        # Packet file
+        packet_frame = ctk.CTkFrame(file_frame)
+        packet_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(packet_frame, text="Clean Packet File:", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=5)
+        
+        packet_buttons_frame = ctk.CTkFrame(packet_frame)
+        packet_buttons_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.packet_file_var = tk.StringVar(value="No packet file selected")
+        self.packet_file_label = ctk.CTkLabel(packet_buttons_frame, textvariable=self.packet_file_var, 
+                                            anchor="w", width=400)
+        self.packet_file_label.pack(side="left", padx=10)
+        
+        ctk.CTkButton(packet_buttons_frame, text="Browse Packet", 
+                     command=self.load_packet_file, width=120).pack(side="left", padx=5)
+        
+        # Reference segment configuration
+        ref_frame = ctk.CTkFrame(main_frame)
+        ref_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(ref_frame, text="Reference Segment Configuration:", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=5)
+        
+        ref_params_frame = ctk.CTkFrame(ref_frame)
+        ref_params_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Reference segment parameters
+        ctk.CTkLabel(ref_params_frame, text="Start Sample:", width=120).pack(side="left", padx=5)
+        self.ref_start_var = tk.StringVar(value="0")
+        ctk.CTkEntry(ref_params_frame, textvariable=self.ref_start_var, width=100).pack(side="left", padx=5)
+        
+        ctk.CTkLabel(ref_params_frame, text="End Sample:", width=120).pack(side="left", padx=5)
+        self.ref_end_var = tk.StringVar(value="1000")
+        ctk.CTkEntry(ref_params_frame, textvariable=self.ref_end_var, width=100).pack(side="left", padx=5)
+        
+        ctk.CTkLabel(ref_params_frame, text="Correlation Threshold:", width=140).pack(side="left", padx=5)
+        self.correlation_threshold_var = tk.StringVar(value="0.5")
+        ctk.CTkEntry(ref_params_frame, textvariable=self.correlation_threshold_var, width=100).pack(side="left", padx=5)
+        
+        # Extract reference button
+        ctk.CTkButton(ref_params_frame, text="Extract Reference", 
+                     command=self.extract_reference, width=140).pack(side="left", padx=5)
+        
+        # Analysis and transplant controls
+        control_frame = ctk.CTkFrame(main_frame)
+        control_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(control_frame, text="Analysis & Transplant Controls:", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=5)
+        
+        buttons_frame = ctk.CTkFrame(control_frame)
+        buttons_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkButton(buttons_frame, text="Analyze Correlation", 
+                     command=self.analyze_correlation, width=140).pack(side="left", padx=5)
+        
+        ctk.CTkButton(buttons_frame, text="Perform Transplant", 
+                     command=self.perform_transplant, width=140).pack(side="left", padx=5)
+        
+        ctk.CTkButton(buttons_frame, text="Validate Results", 
+                     command=self.validate_results, width=140).pack(side="left", padx=5)
+        
+        ctk.CTkButton(buttons_frame, text="Save Result", 
+                     command=self.save_result, width=120).pack(side="left", padx=5)
+        
+        # Results display
+        results_frame = ctk.CTkFrame(main_frame)
+        results_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        ctk.CTkLabel(results_frame, text="Results:", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=5)
+        
+        self.results_text = ctk.CTkTextbox(results_frame, height=200)
+        self.results_text.pack(fill="both", expand=True, padx=10, pady=10)
+        
+    def load_vector_file(self):
+        """Load vector file containing problematic packet"""
+        try:
+            file_path = filedialog.askopenfilename(
+                title="Select Vector File",
+                filetypes=[("MAT files", "*.mat"), ("All files", "*.*")]
+            )
+            
+            if file_path:
+                self.vector_signal = load_packet(file_path)
+                self.vector_sample_rate = get_sample_rate_from_mat(file_path)
+                self.vector_file_var.set(os.path.basename(file_path))
+                
+                self.results_text.insert("end", f"Vector loaded: {os.path.basename(file_path)}\n")
+                self.results_text.insert("end", f"Vector length: {len(self.vector_signal):,} samples\n")
+                self.results_text.insert("end", f"Sample rate: {self.vector_sample_rate/1e6:.1f} MHz\n")
+                self.results_text.insert("end", f"Duration: {len(self.vector_signal)/self.vector_sample_rate*1000:.1f} ms\n\n")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error loading vector file: {e}")
+            print(f"Error loading vector file: {e}")
+            
+    def load_packet_file(self):
+        """Load clean packet file for transplant"""
+        try:
+            file_path = filedialog.askopenfilename(
+                title="Select Clean Packet File",
+                filetypes=[("MAT files", "*.mat"), ("All files", "*.*")]
+            )
+            
+            if file_path:
+                self.packet_signal = load_packet(file_path)
+                self.packet_sample_rate = get_sample_rate_from_mat(file_path)
+                self.packet_file_var.set(os.path.basename(file_path))
+                
+                self.results_text.insert("end", f"Packet loaded: {os.path.basename(file_path)}\n")
+                self.results_text.insert("end", f"Packet length: {len(self.packet_signal):,} samples\n")
+                self.results_text.insert("end", f"Sample rate: {self.packet_sample_rate/1e6:.1f} MHz\n")
+                self.results_text.insert("end", f"Duration: {len(self.packet_signal)/self.packet_sample_rate*1000:.1f} ms\n\n")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error loading packet file: {e}")
+            print(f"Error loading packet file: {e}")
+            
+    def extract_reference(self):
+        """Extract reference segment from packet"""
+        try:
+            if self.packet_signal is None:
+                messagebox.showerror("Error", "Please load a packet file first")
+                return
+                
+            start_sample = int(self.ref_start_var.get())
+            end_sample = int(self.ref_end_var.get())
+            
+            if start_sample >= end_sample:
+                messagebox.showerror("Error", "Start sample must be less than end sample")
+                return
+                
+            if end_sample > len(self.packet_signal):
+                messagebox.showerror("Error", f"End sample ({end_sample}) exceeds packet length ({len(self.packet_signal)})")
+                return
+                
+            self.reference_segment = extract_reference_segment(self.packet_signal, start_sample, end_sample)
+            
+            self.results_text.insert("end", f"Reference segment extracted:\n")
+            self.results_text.insert("end", f"Start sample: {start_sample}\n")
+            self.results_text.insert("end", f"End sample: {end_sample}\n")
+            self.results_text.insert("end", f"Reference length: {len(self.reference_segment)} samples\n")
+            if self.packet_sample_rate:
+                self.results_text.insert("end", f"Reference duration: {len(self.reference_segment)/self.packet_sample_rate*1e6:.1f} μs\n\n")
+            else:
+                self.results_text.insert("end", f"Reference duration: Unknown (no sample rate)\n\n")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error extracting reference segment: {e}")
+            print(f"Error extracting reference segment: {e}")
+            
+    def analyze_correlation(self):
+        """Analyze cross-correlation to find optimal transplant location"""
+        try:
+            if self.vector_signal is None or self.packet_signal is None or self.reference_segment is None:
+                messagebox.showerror("Error", "Please load vector, packet, and extract reference segment first")
+                return
+                
+            correlation_threshold = float(self.correlation_threshold_var.get())
+            
+            # Find optimal transplant location
+            vector_location, packet_location, confidence = find_packet_location_in_vector(
+                self.vector_signal, self.packet_signal, self.reference_segment,
+                correlation_threshold=correlation_threshold
+            )
+            
+            self.results_text.insert("end", f"Correlation Analysis Results:\n")
+            self.results_text.insert("end", f"Vector location: {vector_location} samples\n")
+            self.results_text.insert("end", f"Packet location: {packet_location} samples\n")
+            self.results_text.insert("end", f"Confidence: {confidence:.3f}\n")
+            if self.vector_sample_rate:
+                self.results_text.insert("end", f"Time precision: {1e6/self.vector_sample_rate:.3f} μs\n")
+            else:
+                self.results_text.insert("end", f"Time precision: Unknown (no sample rate)\n")
+            
+            if confidence > 0.7:
+                self.results_text.insert("end", "✓ High confidence - Ready for transplant\n\n")
+            elif confidence > 0.5:
+                self.results_text.insert("end", "⚠ Medium confidence - Proceed with caution\n\n")
+            else:
+                self.results_text.insert("end", "✗ Low confidence - Check reference segment\n\n")
+                
+            # Store results for transplant
+            self.analysis_results = {
+                'vector_location': vector_location,
+                'packet_location': packet_location,
+                'confidence': confidence
+            }
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error analyzing correlation: {e}")
+            print(f"Error analyzing correlation: {e}")
+            
+    def perform_transplant(self):
+        """Perform surgical packet transplant"""
+        try:
+            if not hasattr(self, 'analysis_results'):
+                messagebox.showerror("Error", "Please run correlation analysis first")
+                return
+                
+            if self.analysis_results['confidence'] < 0.3:
+                if not messagebox.askyesno("Warning", "Low confidence detected. Continue anyway?"):
+                    return
+                    
+            # Perform transplant with power normalization
+            self.results_text.insert("end", f"Performing transplant with power normalization...\n")
+            self.transplanted_vector = transplant_packet_in_vector(
+                self.vector_signal, 
+                self.packet_signal,
+                self.analysis_results['vector_location'],
+                self.analysis_results['packet_location'],
+                normalize_power=True
+            )
+            
+            self.results_text.insert("end", f"Transplant completed successfully!\n")
+            if self.packet_signal is not None:
+                self.results_text.insert("end", f"Transplanted {len(self.packet_signal)} samples\n")
+            else:
+                self.results_text.insert("end", f"Transplanted unknown samples\n")
+            self.results_text.insert("end", f"At vector location: {self.analysis_results['vector_location']}\n\n")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error performing transplant: {e}")
+            print(f"Error performing transplant: {e}")
+            
+    def validate_results(self):
+        """Validate transplant quality"""
+        try:
+            if self.transplanted_vector is None:
+                messagebox.showerror("Error", "Please perform transplant first")
+                return
+                
+            # Validate transplant quality
+            self.validation_results = validate_transplant_quality(
+                self.vector_signal, 
+                self.transplanted_vector,
+                self.packet_signal,
+                self.analysis_results['vector_location'],
+                self.reference_segment,
+                self.vector_sample_rate
+            )
+            
+            self.results_text.insert("end", f"Validation Results:\n")
+            self.results_text.insert("end", f"Reference correlation: {self.validation_results['reference_correlation']:.3f}\n")
+            self.results_text.insert("end", f"Reference confidence: {self.validation_results['reference_confidence']:.3f}\n")
+            self.results_text.insert("end", f"Power ratio: {self.validation_results['power_ratio']:.3f}\n")
+            self.results_text.insert("end", f"SNR improvement: {self.validation_results['snr_improvement_db']:.1f} dB\n")
+            self.results_text.insert("end", f"Transplant duration: {self.validation_results['transplant_length_us']:.1f} μs\n")
+            self.results_text.insert("end", f"Time precision: {self.validation_results['time_precision_us']:.3f} μs\n")
+            
+            # Show detailed criteria status
+            criteria = self.validation_results['criteria']
+            self.results_text.insert("end", f"\nValidation Criteria:\n")
+            self.results_text.insert("end", f"✓ Confidence: {self.validation_results['reference_confidence']:.3f} > {criteria['confidence_threshold']:.1f} = {'PASS' if criteria['confidence_ok'] else 'FAIL'}\n")
+            self.results_text.insert("end", f"✓ Power ratio: {self.validation_results['power_ratio']:.3f} > {criteria['power_ratio_threshold']:.2f} = {'PASS' if criteria['power_ok'] else 'FAIL'}\n")
+            self.results_text.insert("end", f"✓ SNR: {self.validation_results['snr_improvement_db']:.1f} > {criteria['min_snr_threshold']:.0f} dB = {'PASS' if criteria['snr_ok'] else 'FAIL'}\n")
+            
+            if self.validation_results['success']:
+                self.results_text.insert("end", "✓ Transplant validation PASSED\n\n")
+            else:
+                self.results_text.insert("end", "✗ Transplant validation FAILED\n\n")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error validating results: {e}")
+            print(f"Error validating results: {e}")
+            
+    def save_result(self):
+        """Save transplanted vector"""
+        try:
+            if self.transplanted_vector is None:
+                messagebox.showerror("Error", "No transplanted vector to save")
+                return
+                
+            file_path = filedialog.asksaveasfilename(
+                title="Save Transplanted Vector",
+                defaultextension=".mat",
+                filetypes=[("MAT files", "*.mat"), ("All files", "*.*")]
+            )
+            
+            if file_path:
+                save_vector(self.transplanted_vector, file_path)
+                self.results_text.insert("end", f"Transplanted vector saved to: {os.path.basename(file_path)}\n\n")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error saving result: {e}")
+            print(f"Error saving result: {e}")
+
+
 class UnifiedVectorApp:
     """Main unified application"""
     
@@ -953,6 +1302,10 @@ class UnifiedVectorApp:
         # Vector building tab
         self.vector_tab = self.notebook.add("Vector Building")
         self.create_vector_tab()
+        
+        # Packet transplant tab
+        self.transplant_tab = self.notebook.add("Packet Transplant")
+        self.packet_transplant = PacketTransplant(self.transplant_tab)
         
         # Refresh packets button
         refresh_button = ctk.CTkButton(

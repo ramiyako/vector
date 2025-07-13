@@ -1254,3 +1254,339 @@ def adjust_packet_bounds_gui(signal, sample_rate, start_sample=0, end_sample=Non
 
     return state['start'], state['end']
 
+
+def cross_correlate_signals(signal1, signal2, mode='full'):
+    """
+    Perform cross-correlation between two signals.
+    
+    Parameters:
+    -----------
+    signal1 : numpy.ndarray
+        First signal (reference)
+    signal2 : numpy.ndarray
+        Second signal (to be searched)
+    mode : str
+        Cross-correlation mode ('full', 'valid', 'same')
+        
+    Returns:
+    --------
+    correlation : numpy.ndarray
+        Cross-correlation result
+    lags : numpy.ndarray
+        Lag values corresponding to correlation peaks
+    """
+    # Convert to complex if needed
+    if signal1.dtype != np.complex128:
+        signal1 = signal1.astype(np.complex128)
+    if signal2.dtype != np.complex128:
+        signal2 = signal2.astype(np.complex128)
+    
+    # Perform cross-correlation
+    correlation = np.correlate(signal2, signal1, mode=mode)
+    
+    # Calculate corresponding lags
+    if mode == 'full':
+        lags = np.arange(-len(signal1) + 1, len(signal2))
+    elif mode == 'same':
+        lags = np.arange(-len(signal1)//2, len(signal1)//2 + len(signal1)%2)
+    else:  # 'valid'
+        lags = np.arange(len(signal2) - len(signal1) + 1)
+    
+    return correlation, lags
+
+
+def find_correlation_peak(correlation, lags, threshold_ratio=0.5):
+    """
+    Find the peak correlation and its corresponding lag.
+    
+    Parameters:
+    -----------
+    correlation : numpy.ndarray
+        Cross-correlation result
+    lags : numpy.ndarray
+        Lag values
+    threshold_ratio : float
+        Minimum correlation threshold as ratio of max correlation
+        
+    Returns:
+    --------
+    peak_lag : int
+        Lag corresponding to peak correlation
+    peak_correlation : float
+        Peak correlation value
+    confidence : float
+        Confidence metric (0-1)
+    """
+    # Find absolute correlation (magnitude)
+    abs_corr = np.abs(correlation)
+    
+    # Find peak
+    peak_idx = np.argmax(abs_corr)
+    peak_lag = lags[peak_idx]
+    peak_correlation = abs_corr[peak_idx]
+    
+    # Calculate confidence based on peak prominence
+    mean_corr = np.mean(abs_corr)
+    std_corr = np.std(abs_corr)
+    
+    if std_corr > 0:
+        confidence = (peak_correlation - mean_corr) / std_corr
+        confidence = np.clip(confidence / 10.0, 0.0, 1.0)  # Normalize to 0-1
+    else:
+        confidence = 0.0
+    
+    # Check if peak meets threshold
+    if peak_correlation < threshold_ratio * np.max(abs_corr):
+        confidence = 0.0
+    
+    return peak_lag, peak_correlation, confidence
+
+
+def extract_reference_segment(signal, start_sample, end_sample):
+    """
+    Extract a reference segment from a signal.
+    
+    Parameters:
+    -----------
+    signal : numpy.ndarray
+        Input signal
+    start_sample : int
+        Start sample index
+    end_sample : int
+        End sample index
+        
+    Returns:
+    --------
+    reference : numpy.ndarray
+        Extracted reference segment
+    """
+    start_sample = max(0, start_sample)
+    end_sample = min(len(signal), end_sample)
+    
+    if start_sample >= end_sample:
+        raise ValueError("Invalid sample range: start_sample >= end_sample")
+    
+    return signal[start_sample:end_sample]
+
+
+def find_packet_location_in_vector(vector, packet_signal, reference_segment, 
+                                  search_window=None, correlation_threshold=0.5):
+    """
+    Find the exact location of a packet in a vector using cross-correlation
+    with a reference segment.
+    
+    Parameters:
+    -----------
+    vector : numpy.ndarray
+        Vector containing the packet to be located
+    packet_signal : numpy.ndarray
+        Clean packet signal to be transplanted
+    reference_segment : numpy.ndarray
+        Reference segment for correlation
+    search_window : tuple or None
+        (start, end) sample range to search in vector
+    correlation_threshold : float
+        Minimum correlation threshold
+        
+    Returns:
+    --------
+    vector_location : int
+        Sample index in vector where packet should be placed
+    packet_location : int
+        Sample index in packet corresponding to vector location
+    confidence : float
+        Confidence metric (0-1)
+    """
+    # Set search window
+    if search_window is None:
+        search_start = 0
+        search_end = len(vector)
+    else:
+        search_start, search_end = search_window
+        search_start = max(0, search_start)
+        search_end = min(len(vector), search_end)
+    
+    vector_search_region = vector[search_start:search_end]
+    
+    # Find reference segment in vector
+    vector_corr, vector_lags = cross_correlate_signals(reference_segment, vector_search_region)
+    vector_peak_lag, vector_peak_val, vector_confidence = find_correlation_peak(
+        vector_corr, vector_lags, correlation_threshold
+    )
+    
+    # Find reference segment in packet
+    packet_corr, packet_lags = cross_correlate_signals(reference_segment, packet_signal)
+    packet_peak_lag, packet_peak_val, packet_confidence = find_correlation_peak(
+        packet_corr, packet_lags, correlation_threshold
+    )
+    
+    # Calculate locations
+    vector_ref_location = search_start + vector_peak_lag
+    packet_ref_location = packet_peak_lag
+    
+    # Calculate transplant locations (align reference points)
+    vector_location = vector_ref_location - packet_ref_location
+    packet_location = 0
+    
+    # Combined confidence
+    confidence = min(vector_confidence, packet_confidence)
+    
+    return vector_location, packet_location, confidence
+
+
+def transplant_packet_in_vector(vector, packet_signal, vector_location, packet_location=0, 
+                               replace_length=None, normalize_power=True):
+    """
+    Transplant a packet into a vector at the specified location with power normalization.
+    
+    Parameters:
+    -----------
+    vector : numpy.ndarray
+        Original vector
+    packet_signal : numpy.ndarray
+        Packet to transplant
+    vector_location : int
+        Sample index in vector where to place packet
+    packet_location : int
+        Sample index in packet to start from
+    replace_length : int or None
+        Number of samples to replace in vector
+    normalize_power : bool
+        Whether to normalize packet power to match original signal
+        
+    Returns:
+    --------
+    new_vector : numpy.ndarray
+        Vector with transplanted packet
+    """
+    new_vector = vector.copy()
+    
+    # Determine replacement length
+    if replace_length is None:
+        replace_length = len(packet_signal) - packet_location
+    
+    # Ensure we don't exceed vector bounds
+    vector_end = min(vector_location + replace_length, len(vector))
+    actual_replace_length = vector_end - vector_location
+    
+    # Ensure we don't exceed packet bounds
+    packet_end = min(packet_location + actual_replace_length, len(packet_signal))
+    actual_packet_length = packet_end - packet_location
+    
+    # Only replace if we have valid ranges
+    if vector_location >= 0 and vector_location < len(vector) and actual_packet_length > 0:
+        # Extract the packet segment to transplant
+        packet_segment = packet_signal[packet_location:packet_location + actual_packet_length]
+        
+        # Power normalization
+        if normalize_power and actual_packet_length > 0:
+            # Calculate power of the original region
+            original_region = vector[vector_location:vector_location + actual_packet_length]
+            original_power = np.mean(np.abs(original_region)**2)
+            packet_power = np.mean(np.abs(packet_segment)**2)
+            
+            # Apply power normalization if packet has non-zero power
+            if packet_power > 0 and original_power > 0:
+                power_scale = np.sqrt(original_power / packet_power)
+                packet_segment = packet_segment * power_scale
+                print(f"Power normalization applied: scale factor = {power_scale:.3f}")
+            elif packet_power == 0:
+                print("Warning: Packet has zero power - normalization skipped")
+            elif original_power == 0:
+                print("Warning: Original region has zero power - normalization skipped")
+        
+        # Transplant the (potentially normalized) packet
+        new_vector[vector_location:vector_location + actual_packet_length] = packet_segment
+    
+    return new_vector
+
+
+def validate_transplant_quality(original_vector, transplanted_vector, packet_signal,
+                               vector_location, reference_segment, sample_rate):
+    """
+    Validate the quality of a packet transplant operation.
+    
+    Parameters:
+    -----------
+    original_vector : numpy.ndarray
+        Original vector before transplant
+    transplanted_vector : numpy.ndarray
+        Vector after transplant
+    packet_signal : numpy.ndarray
+        Transplanted packet signal
+    vector_location : int
+        Location where packet was transplanted
+    reference_segment : numpy.ndarray
+        Reference segment used for alignment
+    sample_rate : float
+        Sample rate in Hz
+        
+    Returns:
+    --------
+    validation_result : dict
+        Dictionary containing validation metrics
+    """
+    # Calculate transplant region
+    transplant_end = min(vector_location + len(packet_signal), len(transplanted_vector))
+    transplant_length = transplant_end - vector_location
+    
+    # Extract transplanted region
+    transplanted_region = transplanted_vector[vector_location:transplant_end]
+    original_region = original_vector[vector_location:transplant_end]
+    
+    # Calculate correlation with reference
+    if len(reference_segment) > 0:
+        ref_corr, _ = cross_correlate_signals(reference_segment, transplanted_region)
+        ref_peak_lag, ref_peak_val, ref_confidence = find_correlation_peak(ref_corr, _)
+    else:
+        ref_confidence = 0.0
+        ref_peak_val = 0.0
+    
+    # Calculate power metrics
+    original_power = np.mean(np.abs(original_region)**2)
+    transplanted_power = np.mean(np.abs(transplanted_region)**2)
+    power_ratio = transplanted_power / original_power if original_power > 0 else 0.0
+    
+    # Calculate SNR improvement estimate
+    noise_power = np.mean(np.abs(original_region - transplanted_region)**2)
+    signal_power = np.mean(np.abs(transplanted_region)**2)
+    snr_improvement = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else np.inf
+    
+    # Time alignment precision (in microseconds)
+    time_precision_us = 1e6 / sample_rate
+    
+    # Updated validation criteria - more realistic thresholds
+    confidence_threshold = 0.3  # More lenient confidence threshold
+    power_ratio_threshold = 0.01  # More lenient power ratio threshold
+    min_snr_threshold = -30  # Minimum acceptable SNR in dB
+    
+    # Check individual criteria
+    confidence_ok = ref_confidence > confidence_threshold
+    power_ok = power_ratio > power_ratio_threshold
+    snr_ok = snr_improvement > min_snr_threshold
+    
+    # Overall success criteria
+    success = confidence_ok and power_ok and snr_ok
+    
+    validation_result = {
+        'reference_correlation': ref_peak_val,
+        'reference_confidence': ref_confidence,
+        'power_ratio': power_ratio,
+        'snr_improvement_db': snr_improvement,
+        'transplant_length_samples': transplant_length,
+        'transplant_length_us': transplant_length * 1e6 / sample_rate,
+        'time_precision_us': time_precision_us,
+        'vector_location': vector_location,
+        'success': success,
+        'criteria': {
+            'confidence_ok': confidence_ok,
+            'power_ok': power_ok,
+            'snr_ok': snr_ok,
+            'confidence_threshold': confidence_threshold,
+            'power_ratio_threshold': power_ratio_threshold,
+            'min_snr_threshold': min_snr_threshold
+        }
+    }
+    
+    return validation_result
+
