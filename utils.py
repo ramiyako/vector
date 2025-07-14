@@ -59,6 +59,8 @@ def load_packet(file_path):
         
         if 'Y' in data:
             packet = data['Y']
+        elif 'y' in data:
+            packet = data['y']
         else:
             # Find the first non-metadata key
             candidates = [k for k in data.keys() if not k.startswith('__')]

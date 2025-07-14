@@ -833,6 +833,34 @@ class ModernPacketConfig:
         self.start_time_var = tk.StringVar(value="0")
         ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="left", padx=5)
         
+        # Row 3 - Normalization ratio
+        row3 = ctk.CTkFrame(params_frame)
+        row3.pack(fill="x", padx=5, pady=2)
+        
+        ctk.CTkLabel(row3, text="Normalization Ratio:", width=140, anchor="w").pack(side="left", padx=5)
+        self.norm_ratio_var = tk.DoubleVar(value=1.0)
+        self.norm_ratio_slider = ctk.CTkSlider(
+            row3, 
+            from_=0.1, 
+            to=10.0, 
+            number_of_steps=99, 
+            variable=self.norm_ratio_var,
+            command=self.update_norm_ratio_display,
+            width=120
+        )
+        self.norm_ratio_slider.pack(side="left", padx=5)
+        
+        self.norm_ratio_label = ctk.CTkLabel(row3, text="1.0x", width=40, anchor="w")
+        self.norm_ratio_label.pack(side="left", padx=5)
+        
+        # Reset button for normalization ratio
+        ctk.CTkButton(
+            row3, 
+            text="Reset", 
+            command=self.reset_norm_ratio, 
+            width=50
+        ).pack(side="left", padx=5)
+        
         # Action buttons
         buttons_frame = ctk.CTkFrame(self.frame)
         buttons_frame.pack(fill="x", padx=10, pady=5)
@@ -862,7 +890,8 @@ class ModernPacketConfig:
                 'file': packet_path,
                 'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # Convert MHz to Hz
                 'period': float(self.period_var.get()) / 1000.0,  # Convert ms to seconds
-                'start_time': float(self.start_time_var.get()) / 1000.0  # Convert ms to seconds
+                'start_time': float(self.start_time_var.get()) / 1000.0,  # Convert ms to seconds
+                'norm_ratio': float(self.norm_ratio_var.get())  # Normalization ratio
             }
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid parameter values: {e}")
@@ -903,13 +932,23 @@ Energy: {energy:.2e}
 Peak Amplitude: {peak_amplitude:.2f}
 Freq Shift: {config['freq_shift']/1e6:.1f} MHz
 Period: {config['period']*1000:.1f} ms
-Start Time Offset: {config['start_time']*1000:.1f} ms"""
+Start Time Offset: {config['start_time']*1000:.1f} ms
+Normalization Ratio: {config['norm_ratio']:.1f}x"""
             
             messagebox.showinfo("Packet Analysis", info)
             
         except Exception as e:
             messagebox.showerror("Error", f"Error analyzing packet: {e}")
             print(f"Error analyzing packet: {e}")
+        
+    def update_norm_ratio_display(self, value):
+        """Update the normalization ratio display"""
+        self.norm_ratio_label.configure(text=f"{value:.1f}x")
+        
+    def reset_norm_ratio(self):
+        """Reset normalization ratio to 1.0"""
+        self.norm_ratio_var.set(1.0)
+        self.norm_ratio_label.configure(text="1.0x")
 
 
 class PacketTransplant:
@@ -1743,6 +1782,11 @@ class UnifiedVectorApp:
                     print(f"  Applied frequency shift: {cfg['freq_shift']/1e6:.1f} MHz")
                 else:
                     freq_shifts.append(0)
+                
+                # Apply individual normalization ratio
+                if cfg['norm_ratio'] != 1.0:
+                    y = y * cfg['norm_ratio']
+                    print(f"  Applied normalization ratio: {cfg['norm_ratio']:.1f}x")
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
