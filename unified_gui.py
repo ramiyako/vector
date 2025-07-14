@@ -833,6 +833,37 @@ class ModernPacketConfig:
         self.start_time_var = tk.StringVar(value="0")
         ctk.CTkEntry(row2, textvariable=self.start_time_var, width=100).pack(side="left", padx=5)
         
+        # Row 3 - Normalization ratio
+        row3 = ctk.CTkFrame(params_frame)
+        row3.pack(fill="x", padx=5, pady=2)
+        
+        # Simple checkbox for 2x boost
+        self.boost_power_var = tk.BooleanVar(value=False)
+        self.boost_checkbox = ctk.CTkCheckBox(
+            row3,
+            text="Boost Power (2x)",
+            variable=self.boost_power_var,
+            width=140
+        )
+        self.boost_checkbox.pack(side="left", padx=5)
+        
+        # Info label
+        self.boost_info_label = ctk.CTkLabel(
+            row3, 
+            text="Default: 1.0x, Boosted: 2.0x", 
+            width=160,
+            anchor="w"
+        )
+        self.boost_info_label.pack(side="left", padx=5)
+        
+        # Reset button for normalization ratio
+        ctk.CTkButton(
+            row3, 
+            text="Reset", 
+            command=self.reset_boost_power, 
+            width=50
+        ).pack(side="left", padx=5)
+        
         # Action buttons
         buttons_frame = ctk.CTkFrame(self.frame)
         buttons_frame.pack(fill="x", padx=10, pady=5)
@@ -862,7 +893,8 @@ class ModernPacketConfig:
                 'file': packet_path,
                 'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # Convert MHz to Hz
                 'period': float(self.period_var.get()) / 1000.0,  # Convert ms to seconds
-                'start_time': float(self.start_time_var.get()) / 1000.0  # Convert ms to seconds
+                'start_time': float(self.start_time_var.get()) / 1000.0,  # Convert ms to seconds
+                'norm_ratio': 2.0 if self.boost_power_var.get() else 1.0  # Normalization ratio
             }
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid parameter values: {e}")
@@ -903,13 +935,19 @@ Energy: {energy:.2e}
 Peak Amplitude: {peak_amplitude:.2f}
 Freq Shift: {config['freq_shift']/1e6:.1f} MHz
 Period: {config['period']*1000:.1f} ms
-Start Time Offset: {config['start_time']*1000:.1f} ms"""
+Start Time Offset: {config['start_time']*1000:.1f} ms
+Power Level: {'Boosted (2.0x)' if config['norm_ratio'] == 2.0 else 'Normal (1.0x)'}"""
             
             messagebox.showinfo("Packet Analysis", info)
             
         except Exception as e:
             messagebox.showerror("Error", f"Error analyzing packet: {e}")
             print(f"Error analyzing packet: {e}")
+        
+    def reset_boost_power(self):
+        """Reset boost power to default (1.0x)"""
+        self.boost_power_var.set(False)
+        self.boost_info_label.configure(text="Default: 1.0x, Boosted: 2.0x")
 
 
 class PacketTransplant:
@@ -1743,6 +1781,11 @@ class UnifiedVectorApp:
                     print(f"  Applied frequency shift: {cfg['freq_shift']/1e6:.1f} MHz")
                 else:
                     freq_shifts.append(0)
+                
+                # Apply individual normalization ratio
+                if cfg['norm_ratio'] != 1.0:
+                    y = y * cfg['norm_ratio']
+                    print(f"  Applied normalization ratio: {cfg['norm_ratio']:.1f}x")
                 
                 # Period in samples
                 period_samples = int(cfg['period'] * TARGET_SAMPLE_RATE)
