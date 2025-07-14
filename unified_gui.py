@@ -837,27 +837,30 @@ class ModernPacketConfig:
         row3 = ctk.CTkFrame(params_frame)
         row3.pack(fill="x", padx=5, pady=2)
         
-        ctk.CTkLabel(row3, text="Normalization Ratio:", width=140, anchor="w").pack(side="left", padx=5)
-        self.norm_ratio_var = tk.DoubleVar(value=1.0)
-        self.norm_ratio_slider = ctk.CTkSlider(
-            row3, 
-            from_=0.1, 
-            to=10.0, 
-            number_of_steps=99, 
-            variable=self.norm_ratio_var,
-            command=self.update_norm_ratio_display,
-            width=120
+        # Simple checkbox for 2x boost
+        self.boost_power_var = tk.BooleanVar(value=False)
+        self.boost_checkbox = ctk.CTkCheckBox(
+            row3,
+            text="Boost Power (2x)",
+            variable=self.boost_power_var,
+            width=140
         )
-        self.norm_ratio_slider.pack(side="left", padx=5)
+        self.boost_checkbox.pack(side="left", padx=5)
         
-        self.norm_ratio_label = ctk.CTkLabel(row3, text="1.0x", width=40, anchor="w")
-        self.norm_ratio_label.pack(side="left", padx=5)
+        # Info label
+        self.boost_info_label = ctk.CTkLabel(
+            row3, 
+            text="Default: 1.0x, Boosted: 2.0x", 
+            width=160,
+            anchor="w"
+        )
+        self.boost_info_label.pack(side="left", padx=5)
         
         # Reset button for normalization ratio
         ctk.CTkButton(
             row3, 
             text="Reset", 
-            command=self.reset_norm_ratio, 
+            command=self.reset_boost_power, 
             width=50
         ).pack(side="left", padx=5)
         
@@ -891,7 +894,7 @@ class ModernPacketConfig:
                 'freq_shift': float(self.freq_shift_var.get()) * 1e6,  # Convert MHz to Hz
                 'period': float(self.period_var.get()) / 1000.0,  # Convert ms to seconds
                 'start_time': float(self.start_time_var.get()) / 1000.0,  # Convert ms to seconds
-                'norm_ratio': float(self.norm_ratio_var.get())  # Normalization ratio
+                'norm_ratio': 2.0 if self.boost_power_var.get() else 1.0  # Normalization ratio
             }
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid parameter values: {e}")
@@ -933,7 +936,7 @@ Peak Amplitude: {peak_amplitude:.2f}
 Freq Shift: {config['freq_shift']/1e6:.1f} MHz
 Period: {config['period']*1000:.1f} ms
 Start Time Offset: {config['start_time']*1000:.1f} ms
-Normalization Ratio: {config['norm_ratio']:.1f}x"""
+Power Level: {'Boosted (2.0x)' if config['norm_ratio'] == 2.0 else 'Normal (1.0x)'}"""
             
             messagebox.showinfo("Packet Analysis", info)
             
@@ -941,14 +944,10 @@ Normalization Ratio: {config['norm_ratio']:.1f}x"""
             messagebox.showerror("Error", f"Error analyzing packet: {e}")
             print(f"Error analyzing packet: {e}")
         
-    def update_norm_ratio_display(self, value):
-        """Update the normalization ratio display"""
-        self.norm_ratio_label.configure(text=f"{value:.1f}x")
-        
-    def reset_norm_ratio(self):
-        """Reset normalization ratio to 1.0"""
-        self.norm_ratio_var.set(1.0)
-        self.norm_ratio_label.configure(text="1.0x")
+    def reset_boost_power(self):
+        """Reset boost power to default (1.0x)"""
+        self.boost_power_var.set(False)
+        self.boost_info_label.configure(text="Default: 1.0x, Boosted: 2.0x")
 
 
 class PacketTransplant:
