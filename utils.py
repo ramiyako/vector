@@ -29,13 +29,26 @@ def get_sample_rate_from_mat(file_path):
                 return float(match.group(1)) * 1e6
         
         # Try to load additional metadata if available
-        data = sio.loadmat(file_path)
+        data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
         if 'sample_rate' in data:
-            return float(data['sample_rate'])
+            sample_rate = data['sample_rate']
+            # Handle both scalar and array values
+            if hasattr(sample_rate, '__len__') and len(sample_rate) == 1:
+                return float(sample_rate[0])
+            else:
+                return float(sample_rate)
         elif 'fs' in data:
-            return float(data['fs'])
+            fs = data['fs']
+            if hasattr(fs, '__len__') and len(fs) == 1:
+                return float(fs[0])
+            else:
+                return float(fs)
         elif 'sr' in data:
-            return float(data['sr'])
+            sr = data['sr']
+            if hasattr(sr, '__len__') and len(sr) == 1:
+                return float(sr[0])
+            else:
+                return float(sr)
             
         # Default fallback
         print(f"Warning: Could not determine sample rate from {file_path}, using default 56MHz")
@@ -59,13 +72,24 @@ def load_packet(file_path):
         
         if 'Y' in data:
             packet = data['Y']
+        elif 'vector' in data:
+            # Handle vector files (like final_test_vector.mat)
+            packet = data['vector']
         else:
             # Find the first non-metadata key
-            candidates = [k for k in data.keys() if not k.startswith('__')]
+            candidates = [k for k in data.keys() if not k.startswith('__') and k not in ['sample_rate', 'duration_ms', 'fs', 'sr']]
             if len(candidates) == 1:
                 packet = data[candidates[0]]
+            elif len(candidates) > 1:
+                # Try common packet data keys in order of preference
+                for key in ['packet', 'signal', 'data', 'waveform']:
+                    if key in candidates:
+                        packet = data[key]
+                        break
+                else:
+                    raise ValueError(f"Ambiguous packet data in {file_path}. Available data keys: {candidates}")
             else:
-                raise ValueError(f"Ambiguous packet data in {file_path}. Available keys: {list(data.keys())}")
+                raise ValueError(f"No packet data found in {file_path}. Available keys: {list(data.keys())}")
         
         # Ensure packet is 1D
         if packet.ndim > 1:
@@ -91,12 +115,23 @@ def load_packet_info(file_path):
     data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
     if 'Y' in data:
         packet = data['Y']
+    elif 'vector' in data:
+        # Handle vector files (like final_test_vector.mat)
+        packet = data['vector']
     else:
-        candidates = [k for k in data.keys() if not k.startswith('__')]
+        candidates = [k for k in data.keys() if not k.startswith('__') and k not in ['sample_rate', 'duration_ms', 'fs', 'sr']]
         if len(candidates) == 1:
             packet = data[candidates[0]]
+        elif len(candidates) > 1:
+            # Try common packet data keys in order of preference
+            for key in ['packet', 'signal', 'data', 'waveform']:
+                if key in candidates:
+                    packet = data[key]
+                    break
+            else:
+                raise ValueError(f"Ambiguous packet data in {file_path}. Available data keys: {candidates}")
         else:
-            raise ValueError(f"Ambiguous packet data in {file_path}. Available keys: {list(data.keys())}")
+            raise ValueError(f"No packet data found in {file_path}. Available keys: {list(data.keys())}")
 
     if packet.ndim > 1:
         packet = packet.flatten()
