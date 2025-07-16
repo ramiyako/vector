@@ -31,6 +31,7 @@ from utils import (
     transplant_packet_in_vector,
     validate_transplant_quality
 )
+from long_recording_analyzer import LongRecordingAnalyzer
 
 # Modern theme configuration
 ctk.set_appearance_mode("dark")
@@ -1307,6 +1308,10 @@ class UnifiedVectorApp:
         self.transplant_tab = self.notebook.add("Packet Transplant")
         self.packet_transplant = PacketTransplant(self.transplant_tab)
         
+        # Long recording analysis tab
+        self.long_recording_tab = self.notebook.add("Long Recording Analysis")
+        self.create_long_recording_tab()
+        
         # Refresh packets button
         refresh_button = ctk.CTkButton(
             self.root, 
@@ -1320,6 +1325,191 @@ class UnifiedVectorApp:
         # Start auto-refresh timer (every 2 seconds)
         self.start_auto_refresh_timer()
         
+    def create_long_recording_tab(self):
+        """Create the long recording analysis tab"""
+        # Main container with scrollable frame
+        main_frame = ctk.CTkScrollableFrame(self.long_recording_tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Title
+        title_label = ctk.CTkLabel(
+            main_frame, 
+            text="🎯 Long Recording Analysis - ניתוח הקלטות ארוכות",
+            font=ctk.CTkFont(size=20, weight="bold")
+        )
+        title_label.pack(pady=(0, 20))
+        
+        # Description
+        desc_label = ctk.CTkLabel(
+            main_frame,
+            text="טען הקלטות ארוכות (1-2 שניות, 56 MSps), זהה פקטות באופן אוטומטי,\nוקבל את הפקטות האיכותיות ביותר מכל סוג בתיקייה נפרדת",
+            font=ctk.CTkFont(size=14),
+            justify="center"
+        )
+        desc_label.pack(pady=(0, 30))
+        
+        # File selection section
+        file_frame = ctk.CTkFrame(main_frame)
+        file_frame.pack(fill="x", pady=10)
+        
+        file_title = ctk.CTkLabel(file_frame, text="📁 בחירת קובץ הקלטה", font=ctk.CTkFont(size=16, weight="bold"))
+        file_title.pack(pady=10)
+        
+        # File path display
+        self.long_recording_file_var = tk.StringVar(value="לא נבחר קובץ")
+        file_path_label = ctk.CTkLabel(file_frame, textvariable=self.long_recording_file_var, wraplength=600)
+        file_path_label.pack(pady=5)
+        
+        # Browse button
+        browse_button = ctk.CTkButton(
+            file_frame,
+            text="🔍 בחר קובץ הקלטה (.mat)",
+            command=self.browse_long_recording_file,
+            height=40,
+            font=ctk.CTkFont(size=14)
+        )
+        browse_button.pack(pady=10)
+        
+        # Settings section
+        settings_frame = ctk.CTkFrame(main_frame)
+        settings_frame.pack(fill="x", pady=10)
+        
+        settings_title = ctk.CTkLabel(settings_frame, text="⚙️ הגדרות ניתוח", font=ctk.CTkFont(size=16, weight="bold"))
+        settings_title.pack(pady=10)
+        
+        # Sample rate
+        sr_frame = ctk.CTkFrame(settings_frame)
+        sr_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(sr_frame, text="קצב דגימה (MHz):").pack(side="left", padx=10)
+        self.sample_rate_var = tk.StringVar(value="56")
+        sr_entry = ctk.CTkEntry(sr_frame, textvariable=self.sample_rate_var, width=100)
+        sr_entry.pack(side="right", padx=10)
+        
+        # Safety margin
+        margin_frame = ctk.CTkFrame(settings_frame)
+        margin_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(margin_frame, text="מרווח בטיחות (ms):").pack(side="left", padx=10)
+        self.safety_margin_var = tk.StringVar(value="0.1")
+        margin_entry = ctk.CTkEntry(margin_frame, textvariable=self.safety_margin_var, width=100)
+        margin_entry.pack(side="right", padx=10)
+        
+        # Output directory
+        output_frame = ctk.CTkFrame(settings_frame)
+        output_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(output_frame, text="תיקיית פלט (אופציונלי):").pack(side="left", padx=10)
+        self.output_dir_var = tk.StringVar(value="")
+        output_entry = ctk.CTkEntry(output_frame, textvariable=self.output_dir_var, width=300)
+        output_entry.pack(side="right", padx=10)
+        
+        # Analysis button
+        analyze_button = ctk.CTkButton(
+            main_frame,
+            text="🚀 התחל ניתוח",
+            command=self.start_long_recording_analysis,
+            height=50,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            fg_color="#1f8b4c",
+            hover_color="#0f5d2f"
+        )
+        analyze_button.pack(pady=20)
+        
+        # Progress and results section
+        self.progress_frame = ctk.CTkFrame(main_frame)
+        self.progress_frame.pack(fill="x", pady=10)
+        
+        # Progress bar
+        self.progress_var = tk.StringVar(value="מוכן לניתוח")
+        progress_label = ctk.CTkLabel(self.progress_frame, textvariable=self.progress_var, font=ctk.CTkFont(size=14))
+        progress_label.pack(pady=10)
+        
+        # Results text area
+        self.results_text = ctk.CTkTextbox(main_frame, height=300, width=800)
+        self.results_text.pack(fill="both", expand=True, pady=10)
+        self.results_text.insert("1.0", "תוצאות הניתוח יוצגו כאן...\n")
+        
+    def browse_long_recording_file(self):
+        """Browse for long recording file"""
+        file_path = filedialog.askopenfilename(
+            title="בחר קובץ הקלטה ארוכה",
+            filetypes=[("MATLAB files", "*.mat"), ("All files", "*.*")]
+        )
+        if file_path:
+            self.long_recording_file_var.set(file_path)
+            
+    def start_long_recording_analysis(self):
+        """Start long recording analysis"""
+        file_path = self.long_recording_file_var.get()
+        
+        if file_path == "לא נבחר קובץ" or not os.path.exists(file_path):
+            messagebox.showerror("שגיאה", "אנא בחר קובץ הקלטה תקין")
+            return
+            
+        try:
+            # Clear previous results
+            self.results_text.delete("1.0", "end")
+            self.progress_var.set("מתחיל ניתוח...")
+            self.root.update()
+            
+            # Get parameters
+            sample_rate = float(self.sample_rate_var.get()) * 1e6  # Convert MHz to Hz
+            safety_margin = float(self.safety_margin_var.get())
+            output_dir = self.output_dir_var.get().strip() or None
+            
+            # Create analyzer
+            analyzer = LongRecordingAnalyzer(
+                sample_rate=sample_rate,
+                safety_margin_ms=safety_margin
+            )
+            
+            # Custom print function to capture output
+            def capture_print(text):
+                self.results_text.insert("end", text + "\n")
+                self.results_text.see("end")
+                self.root.update()
+            
+            # Redirect print to our capture function
+            import builtins
+            original_print = builtins.print
+            builtins.print = capture_print
+            
+            try:
+                # Run analysis
+                self.progress_var.set("מנתח הקלטה...")
+                self.root.update()
+                
+                result = analyzer.analyze_recording(file_path, output_dir)
+                
+                if result:
+                    self.progress_var.set("ניתוח הושלם בהצלחה!")
+                    
+                    # Show summary
+                    capture_print("\n" + "="*50)
+                    capture_print("📊 סיכום תוצאות:")
+                    capture_print(f"📁 תיקיית פלט: {result['output_dir']}")
+                    capture_print(f"📦 פקטות שנשמרו: {result['packet_count']}")
+                    capture_print(f"🔍 קבוצות שזוהו: {result['groups_found']}")
+                    capture_print(f"📡 סה״כ פקטות שנמצאו: {result['total_packets_detected']}")
+                    capture_print("="*50)
+                    
+                    # Auto-refresh packet list to include new packets
+                    self.refresh_packets()
+                    
+                else:
+                    self.progress_var.set("לא נמצאו פקטות בהקלטה")
+                    
+            finally:
+                # Restore original print
+                builtins.print = original_print
+                
+        except Exception as e:
+            self.progress_var.set("שגיאה בניתוח")
+            self.results_text.insert("end", f"\n❌ שגיאה: {str(e)}\n")
+            self.results_text.see("end")
+            messagebox.showerror("שגיאה", f"שגיאה בניתוח ההקלטה:\n{str(e)}")
+            
     def create_vector_tab(self):
         """Create vector building tab"""
         # Main frame
