@@ -1,8 +1,8 @@
 """
-Long Recording Analyzer - מנתח הקלטות ארוכות
-מודול לטעינת הקלטות ארוכות (1-2 שניות, 56 MSps), 
-זיהוי פקטות באופן אוטומטי, חיתוכן עם מרווח בטיחות,
-ובחירת הפקטה האיכותית ביותר מכל סוג.
+Long Recording Analyzer
+Module for loading long recordings (1-2 seconds, 56 MSps), 
+automatically detecting packets, cutting them with safety margins,
+and selecting the highest quality packet of each type.
 """
 
 import os
@@ -16,41 +16,41 @@ import shutil
 from datetime import datetime
 
 class LongRecordingAnalyzer:
-    def __init__(self, sample_rate=56e6, safety_margin_ms=0.1):
+    def __init__(self, sample_rate=56e6, safety_margin_ms=0.5):
         """
-        אתחול מנתח הקלטות ארוכות
+        Initialize long recording analyzer
         
         Args:
-            sample_rate: קצב דגימה (ברירת מחדל 56 MHz)
-            safety_margin_ms: מרווח בטיחות בחיתוך הפקטות במילישניות
+            sample_rate: Sample rate (default 56 MHz)
+            safety_margin_ms: Safety margin for packet cutting in milliseconds
         """
         self.sample_rate = sample_rate
         self.safety_margin_samples = int(safety_margin_ms * sample_rate / 1000)
         
-        # פרמטרים לזיהוי פקטות
-        self.power_threshold_db = -40  # סף כוח יחסי לזיהוי פקטות
-        self.min_packet_samples = int(0.01 * sample_rate)  # מינימום 10ms לפקטה
-        self.max_packet_samples = int(0.5 * sample_rate)   # מקסימום 500ms לפקטה
+        # Packet detection parameters
+        self.power_threshold_db = -40  # Relative power threshold for packet detection
+        self.min_packet_samples = int(0.01 * sample_rate)  # Minimum 10ms for packet
+        self.max_packet_samples = int(0.5 * sample_rate)   # Maximum 500ms for packet
         
-        # פרמטרים לקיבוץ פקטות
-        self.frequency_tolerance_hz = 50e3  # סובלנות תדר לקיבוץ פקטות (50 kHz)
-        self.bandwidth_tolerance = 0.2  # סובלנות רוחב פס (20%)
+        # Packet grouping parameters
+        self.frequency_tolerance_hz = 50e3  # Frequency tolerance for packet grouping (50 kHz)
+        self.bandwidth_tolerance = 0.2  # Bandwidth tolerance (20%)
         
     def load_recording(self, file_path):
         """
-        טעינת הקלטה ארוכה מקובץ MAT
+        Load long recording from MAT file
         """
-        print(f"📁 טוען הקלטה: {os.path.basename(file_path)}")
+        print(f"📁 Loading recording: {os.path.basename(file_path)}")
         
         try:
-            # בדיקת גודל קובץ
+            # Check file size
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            print(f"🗂️ גודל קובץ: {file_size_mb:.1f}MB")
+            print(f"🗂️ File size: {file_size_mb:.1f}MB")
             
-            # טעינת הנתונים
+            # Load data
             data = sio.loadmat(file_path, squeeze_me=True, struct_as_record=False)
             
-            # מציאת הנתונים הראשיים
+            # Find main data
             if 'Y' in data:
                 recording = data['Y']
             else:
@@ -58,55 +58,57 @@ class LongRecordingAnalyzer:
                 if candidates:
                     recording = data[candidates[0]]
                 else:
-                    raise ValueError("לא נמצאו נתונים בקובץ")
+                    raise ValueError("No data found in file")
             
-            # ווידוא שהנתונים הם וקטור
+            # Ensure data is a vector
             if recording.ndim > 1:
                 recording = recording.flatten()
             
-            # המרה לטיפוס יעיל יותר
+            # Convert to more efficient type
             recording = recording.astype(np.complex64)
             
             duration_sec = len(recording) / self.sample_rate
-            print(f"⏱️ משך הקלטה: {duration_sec:.2f} שניות")
-            print(f"📊 מספר דגימות: {len(recording):,}")
+            print(f"⏱️ Recording duration: {duration_sec:.2f} seconds")
+            print(f"📊 Number of samples: {len(recording):,}")
             
             return recording
             
         except Exception as e:
-            print(f"❌ שגיאה בטעינת הקלטה: {e}")
+            print(f"❌ Error loading recording: {e}")
             raise
     
     def detect_packets(self, recording):
         """
-        זיהוי פקטות בהקלטה באופן אוטומטי
-        מחזיר רשימה של טיפלים (start_idx, end_idx, power_db, center_freq, bandwidth)
+        Automatically detect packets in recording
+        Returns list of tuples (start_idx, end_idx, power_db, center_freq, bandwidth)
         """
-        print("🔍 מזהה פקטות בהקלטה...")
+        print("🔍 Detecting packets in recording...")
         
-        # חישוב עוצמה מיידית
+        # Calculate instantaneous power
         instant_power = np.abs(recording)**2
         
-        # החלקה למניעת רעש
+        # Smooth to prevent noise
         window_size = max(1, int(0.001 * self.sample_rate))  # 1ms window
         power_smooth = np.convolve(instant_power, np.ones(window_size)/window_size, mode='same')
         
-        # המרה ל-dB
+        # Convert to dB
         power_db = 10 * np.log10(power_smooth + 1e-12)
-        noise_floor_db = np.percentile(power_db, 10)  # רמת רעש בסיס
+        noise_floor_db = np.percentile(power_db, 10)  # Noise floor level
         
-        # זיהוי אזורים מעל הסף
+        # Detect areas above threshold
         threshold_db = noise_floor_db + self.power_threshold_db
         above_threshold = power_db > threshold_db
         
-        # מציאת אזורים רציפים
+        # Find continuous areas
         labeled, num_features = label(above_threshold)
         objects = find_objects(labeled)
         
         packets = []
-        print(f"📡 נמצאו {num_features} אזורי אות פוטנציאליים")
+        print(f"📡 Found {num_features} potential packet areas")
         
         for i, obj in enumerate(objects):
+            if i % 10 == 0 and num_features > 20:
+                print(f"🔄 Processing packet area {i+1}/{num_features}")
             if obj[0] is None:
                 continue
                 
@@ -114,39 +116,49 @@ class LongRecordingAnalyzer:
             end_idx = obj[0].stop
             duration_samples = end_idx - start_idx
             
-            # סינון לפי אורך פקטה
+            # Filter by packet length
             if duration_samples < self.min_packet_samples or duration_samples > self.max_packet_samples:
                 continue
             
-            # הוספת מרווח בטיחות
+            # Add safety margin
             safe_start = max(0, start_idx - self.safety_margin_samples)
             safe_end = min(len(recording), end_idx + self.safety_margin_samples)
             
-            # חישוב מאפיינים של הפקטה
+            # Calculate packet characteristics
             packet_data = recording[safe_start:safe_end]
             
-            # חישוב עוצמה ממוצעת
+            # Calculate average power
             avg_power_db = np.mean(power_db[start_idx:end_idx])
             
-            # חישוב תדר מרכזי ורוחב פס באמצעות FFT
-            fft = np.fft.fft(packet_data)
-            freqs = np.fft.fftfreq(len(packet_data), 1/self.sample_rate)
+            # Optimized spectral analysis - use decimation for faster processing
+            if len(packet_data) > 8192:
+                # Decimate for faster processing while maintaining accuracy
+                decimation_factor = len(packet_data) // 4096
+                packet_data_decimated = packet_data[::decimation_factor]
+                effective_sample_rate = self.sample_rate / decimation_factor
+            else:
+                packet_data_decimated = packet_data
+                effective_sample_rate = self.sample_rate
+            
+            # Calculate center frequency and bandwidth using optimized FFT
+            fft = np.fft.fft(packet_data_decimated)
+            freqs = np.fft.fftfreq(len(packet_data_decimated), 1/effective_sample_rate)
             psd = np.abs(fft)**2
             
-            # מציאת תדר מרכזי (תדר עם העוצמה המקסימלית)
-            peak_idx = np.argmax(psd[:len(psd)//2])  # חצי ראשון של הספקטרום
+            # Find center frequency (frequency with maximum power)
+            peak_idx = np.argmax(psd[:len(psd)//2])  # First half of the spectrum
             center_freq = abs(freqs[peak_idx])
             
-            # חישוב רוחב פס (3dB bandwidth)
-            max_power = np.max(psd)
+            # Calculate bandwidth (3dB bandwidth) - optimized calculation
+            max_power = np.max(psd[:len(psd)//2])
             half_power = max_power / 2
-            above_half = psd > half_power
+            above_half = psd[:len(psd)//2] > half_power
             
             if np.any(above_half):
                 freq_indices = np.where(above_half)[0]
-                bandwidth = (freq_indices[-1] - freq_indices[0]) * self.sample_rate / len(packet_data)
+                bandwidth = (freq_indices[-1] - freq_indices[0]) * effective_sample_rate / len(packet_data_decimated)
             else:
-                bandwidth = self.sample_rate / len(packet_data)  # רזולוציה מינימלית
+                bandwidth = effective_sample_rate / len(packet_data_decimated)  # Minimum resolution
             
             packets.append({
                 'start_idx': safe_start,
@@ -160,29 +172,29 @@ class LongRecordingAnalyzer:
                 'snr_db': avg_power_db - noise_floor_db
             })
         
-        print(f"✅ זוהו {len(packets)} פקטות תקינות")
+        print(f"✅ Detected {len(packets)} valid packets")
         return packets
     
     def group_similar_packets(self, packets):
         """
-        קיבוץ פקטות דומות לפי תדר ורוחב פס
+        Group similar packets by frequency and bandwidth
         """
-        print("🔗 מקבץ פקטות דומות...")
+        print("🔗 Grouping similar packets...")
         
         groups = defaultdict(list)
         
         for packet in packets:
-            # חיפוש קבוצה מתאימה
+            # Find a matching group
             group_key = None
             for existing_key in groups.keys():
                 ref_freq, ref_bw = existing_key
                 
-                # בדיקת קרבה בתדר
+                # Check frequency proximity
                 freq_diff = abs(packet['center_freq'] - ref_freq)
                 if freq_diff > self.frequency_tolerance_hz:
                     continue
                 
-                # בדיקת קרבה ברוחב פס
+                # Check bandwidth proximity
                 bw_ratio = abs(packet['bandwidth'] - ref_bw) / max(ref_bw, packet['bandwidth'])
                 if bw_ratio > self.bandwidth_tolerance:
                     continue
@@ -190,31 +202,31 @@ class LongRecordingAnalyzer:
                 group_key = existing_key
                 break
             
-            # יצירת קבוצה חדשה אם לא נמצאה קבוצה מתאימה
+            # Create new group if no matching group found
             if group_key is None:
                 group_key = (packet['center_freq'], packet['bandwidth'])
             
             groups[group_key].append(packet)
         
-        print(f"📋 נוצרו {len(groups)} קבוצות פקטות")
+        print(f"📋 Created {len(groups)} packet groups")
         return groups
     
     def select_best_packet(self, packet_group):
         """
-        בחירת הפקטה האיכותית ביותר מקבוצה
+        Select the highest quality packet from a group
         """
         if len(packet_group) == 1:
             return packet_group[0]
         
-        # ניקוד איכות מורכב
+        # Complex quality score
         best_packet = None
         best_score = -float('inf')
         
         for packet in packet_group:
-            # ניקוד מבוסס על:
-            # 1. SNR (50% מהניקוד)
-            # 2. עוצמה (30% מהניקוד)  
-            # 3. משך (20% מהניקוד - פקטות ארוכות יותר עדיפות)
+            # Score based on:
+            # 1. SNR (50% of score)
+            # 2. Power (30% of score)  
+            # 3. Duration (20% of score - longer packets are preferred)
             
             snr_score = packet['snr_db'] * 0.5
             power_score = packet['power_db'] * 0.3
@@ -230,7 +242,7 @@ class LongRecordingAnalyzer:
     
     def extract_packets(self, recording, packets):
         """
-        חילוץ הפקטות מההקלטה המקורית
+        Extract packets from the original recording
         """
         extracted_packets = []
         
@@ -248,7 +260,7 @@ class LongRecordingAnalyzer:
     
     def save_packets(self, extracted_packets, output_dir, base_name="packet"):
         """
-        שמירת הפקטות בתיקייה עם אותו פורמט MAT כמו באפליקציה
+        Save packets to a directory with the same MAT format as the original application
         """
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -256,14 +268,14 @@ class LongRecordingAnalyzer:
         saved_files = []
         
         for i, packet_info in enumerate(extracted_packets):
-            # יצירת שם קובץ עם מידע על התדר ורוחב הפס
+            # Create filename with information about frequency and bandwidth
             freq_mhz = packet_info['metadata']['center_freq'] / 1e6
             bw_mhz = packet_info['metadata']['bandwidth'] / 1e6
             
             filename = f"{base_name}_{i+1:02d}_freq_{freq_mhz:.1f}MHz_bw_{bw_mhz:.1f}MHz.mat"
             filepath = os.path.join(output_dir, filename)
             
-            # שמירה באותו פורמט כמו באפליקציה המקורית
+            # Save in the same format as the original application
             save_data = {
                 'Y': packet_info['data'],
                 'metadata': {
@@ -280,36 +292,42 @@ class LongRecordingAnalyzer:
             sio.savemat(filepath, save_data)
             saved_files.append(filepath)
             
-            print(f"💾 נשמר: {filename} (תדר: {freq_mhz:.1f}MHz, עוצמה: {packet_info['metadata']['power_db']:.1f}dB)")
+            print(f"💾 Saved: {filename} (Frequency: {freq_mhz:.1f}MHz, Power: {packet_info['metadata']['power_db']:.1f}dB)")
         
         return saved_files
     
     def analyze_recording(self, input_file, output_dir=None):
         """
-        פונקציה ראשית לניתוח הקלטה ארוכה
+        Primary function for analyzing long recording
         """
-        print("🚀 מתחיל ניתוח הקלטה ארוכה...")
+        print("🚀 Starting long recording analysis...")
         
-        # יצירת תיקיית פלט אם לא סופקה
+        # Create output directory if not provided
         if output_dir is None:
             base_name = os.path.splitext(os.path.basename(input_file))[0]
-            output_dir = f"extracted_packets_{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = os.path.join("extraction", f"long_recording_analysis_{base_name}_{timestamp}")
+        
+        # Ensure the extraction directory exists
+        extraction_dir = os.path.dirname(output_dir) if os.path.dirname(output_dir) else "extraction"
+        if not os.path.exists(extraction_dir):
+            os.makedirs(extraction_dir)
         
         try:
-            # שלב 1: טעינת ההקלטה
+            # Step 1: Load the recording
             recording = self.load_recording(input_file)
             
-            # שלב 2: זיהוי פקטות
+            # Step 2: Detect packets
             packets = self.detect_packets(recording)
             
             if not packets:
-                print("⚠️ לא נמצאו פקטות בהקלטה")
+                print("⚠️ No packets found in recording")
                 return
             
-            # שלב 3: קיבוץ פקטות דומות
+            # Step 3: Group similar packets
             groups = self.group_similar_packets(packets)
             
-            # שלב 4: בחירת הפקטה הטובה ביותר מכל קבוצה
+            # Step 4: Select the best packet from each group
             best_packets = []
             for group_key, packet_group in groups.items():
                 best_packet = self.select_best_packet(packet_group)
@@ -317,19 +335,19 @@ class LongRecordingAnalyzer:
                 
                 freq_mhz = group_key[0] / 1e6
                 bw_mhz = group_key[1] / 1e6
-                print(f"📊 קבוצה תדר {freq_mhz:.1f}MHz: נבחרה פקטה עם SNR {best_packet['snr_db']:.1f}dB מתוך {len(packet_group)} פקטות")
+                print(f"📊 Frequency group {freq_mhz:.1f}MHz: Selected packet with SNR {best_packet['snr_db']:.1f}dB from {len(packet_group)} packets")
             
-            # שלב 5: חילוץ הפקטות הנבחרות
+            # Step 5: Extract the selected packets
             extracted_packets = self.extract_packets(recording, best_packets)
             
-            # שלב 6: שמירה
+            # Step 6: Save
             saved_files = self.save_packets(extracted_packets, output_dir)
             
-            # סיכום
-            print(f"\n✅ ניתוח הושלם בהצלחה!")
-            print(f"📁 תיקיית פלט: {output_dir}")
-            print(f"📦 נשמרו {len(saved_files)} פקטות איכותיות")
-            print(f"💽 גודל ממוצע לפקטה: {np.mean([len(ep['data']) for ep in extracted_packets]):.0f} דגימות")
+            # Summary
+            print(f"\n✅ Analysis complete successfully!")
+            print(f"📁 Output directory: {output_dir}")
+            print(f"📦 Saved {len(saved_files)} high-quality packets")
+            print(f"💽 Average packet size: {np.mean([len(ep['data']) for ep in extracted_packets]):.0f} samples")
             
             return {
                 'output_dir': output_dir,
@@ -340,31 +358,31 @@ class LongRecordingAnalyzer:
             }
             
         except Exception as e:
-            print(f"❌ שגיאה בניתוח: {e}")
+            print(f"❌ Error during analysis: {e}")
             raise
 
 def main():
-    """פונקציה לבדיקה ישירה מהמסוף"""
+    """Direct execution function from the command line"""
     import sys
     
     if len(sys.argv) != 2:
-        print("שימוש: python long_recording_analyzer.py <קובץ_הקלטה.mat>")
+        print("Usage: python long_recording_analyzer.py <input_recording.mat>")
         sys.exit(1)
     
     input_file = sys.argv[1]
     
     if not os.path.exists(input_file):
-        print(f"❌ קובץ לא נמצא: {input_file}")
+        print(f"❌ File not found: {input_file}")
         sys.exit(1)
     
-    # יצירת מנתח
+    # Create analyzer
     analyzer = LongRecordingAnalyzer()
     
-    # ניתוח ההקלטה
+    # Analyze the recording
     result = analyzer.analyze_recording(input_file)
     
     if result:
-        print(f"\n🎯 תוצאות הניתוח:")
+        print(f"\n🎯 Analysis results:")
         for key, value in result.items():
             print(f"   {key}: {value}")
 
