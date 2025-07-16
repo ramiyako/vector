@@ -28,10 +28,10 @@ class LongRecordingAnalyzer:
         self.sample_rate = sample_rate
         self.safety_margin_samples = int(safety_margin_ms * sample_rate / 1000)
         
-        # Packet detection parameters - VERY SENSITIVE for missing packets issue
-        self.power_threshold_db = -60  # Much lower threshold (was -40dB) 
-        self.min_packet_samples = int(0.0005 * sample_rate)  # Minimum 0.5ms for packet
-        self.max_packet_samples = int(1.0 * sample_rate)   # Maximum 1000ms for packet
+        # Packet detection parameters - RESTORED to working values
+        self.power_threshold_db = -40  # Original working threshold
+        self.min_packet_samples = int(0.001 * sample_rate)  # Minimum 1ms for packet
+        self.max_packet_samples = int(0.5 * sample_rate)   # Maximum 500ms for packet
         
         # Packet grouping parameters
         self.frequency_tolerance_hz = 50e3  # Frequency tolerance for packet grouping (50 kHz)
@@ -118,9 +118,8 @@ class LongRecordingAnalyzer:
         
         print(f"🔍 Detection stats: Noise floor: {noise_floor_db:.1f}dB, Max power: {max_power_db:.1f}dB, Dynamic range: {max_power_db-noise_floor_db:.1f}dB")
         
-        # OPTIMIZATION 3: VERY sensitive threshold to catch all packets  
-        # For missing packets issue: use relative threshold from max power instead of noise floor
-        threshold_db = max_power_db - 20  # 20dB below max power (very sensitive)
+        # OPTIMIZATION 3: Smart threshold - restored to working method
+        threshold_db = noise_floor_db + self.power_threshold_db + 5  # Original working approach
         print(f"🎯 Using threshold: {threshold_db:.1f}dB")
         above_threshold = power_db > threshold_db
         
@@ -138,10 +137,10 @@ class LongRecordingAnalyzer:
         if num_features <= 2:  # If we found few areas, try peak detection
             from scipy.signal import find_peaks
             
-            # Find peaks in power signal - VERY SENSITIVE
+            # Find peaks in power signal
             peak_indices, _ = find_peaks(power_db, 
-                                       height=threshold_db - 10,  # 10dB BELOW threshold (very sensitive)
-                                       distance=int(0.001 * fast_sample_rate))  # Min 1ms between peaks
+                                       height=threshold_db + 5,  # At least 5dB above threshold
+                                       distance=int(0.005 * fast_sample_rate))  # Min 5ms between peaks
             
             print(f"🔍 Peak detection found {len(peak_indices)} potential packet centers")
             
@@ -176,8 +175,8 @@ class LongRecordingAnalyzer:
         # OPTIMIZATION 4: Smart signal selection
         if num_features == 0:
             print("⚠️ No packets found with higher threshold, trying lower threshold...")
-            # Try with even more sensitive threshold
-            threshold_db = max_power_db - 30  # 30dB below max power (extremely sensitive)
+            # Try with original threshold if no packets found
+            threshold_db = noise_floor_db + self.power_threshold_db  # Original threshold
             above_threshold = power_db > threshold_db
             labeled, num_features = label(above_threshold)
             objects = find_objects(labeled)
@@ -185,8 +184,8 @@ class LongRecordingAnalyzer:
             
             # If still no packets, try even lower threshold
             if num_features == 0:
-                print("⚠️ Still no packets, trying EXTREMELY sensitive detection...")
-                threshold_db = max_power_db - 50  # 50dB below max power (catch everything!)
+                print("⚠️ Still no packets, trying very sensitive detection...")
+                threshold_db = noise_floor_db + self.power_threshold_db - 10  # Very low threshold
                 above_threshold = power_db > threshold_db
                 labeled, num_features = label(above_threshold)
                 objects = find_objects(labeled)
@@ -291,9 +290,8 @@ class LongRecordingAnalyzer:
             power_db_full = 10 * np.log10(power_smooth_full + 1e-12)
             noise_floor_db_full = np.percentile(power_db_full, 10)
             
-            # Use very sensitive threshold for full resolution  
-            max_power_db_full = np.max(power_db_full)
-            threshold_db_full = max_power_db_full - 25  # 25dB below max (very sensitive)
+            # Use lower threshold for full resolution
+            threshold_db_full = noise_floor_db_full + self.power_threshold_db - 5  # Lower threshold
             above_threshold_full = power_db_full > threshold_db_full
             
             # Find areas
