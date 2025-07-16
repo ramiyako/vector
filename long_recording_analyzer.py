@@ -30,7 +30,7 @@ class LongRecordingAnalyzer:
         
         # Packet detection parameters
         self.power_threshold_db = -40  # Relative power threshold for packet detection
-        self.min_packet_samples = int(0.01 * sample_rate)  # Minimum 10ms for packet
+        self.min_packet_samples = int(0.001 * sample_rate)  # Minimum 1ms for packet (was 10ms)
         self.max_packet_samples = int(0.5 * sample_rate)   # Maximum 500ms for packet
         
         # Packet grouping parameters
@@ -86,8 +86,14 @@ class LongRecordingAnalyzer:
         print("🔍 Fast packet detection starting...")
         start_time = time.time()
         
-        # OPTIMIZATION 1: Downsample for initial detection (10x faster)
-        downsample_factor = 10
+        # OPTIMIZATION 1: Smart downsampling - less aggressive to catch more packets
+        if len(recording) > 50_000_000:  # Very large files
+            downsample_factor = 10
+        elif len(recording) > 10_000_000:  # Large files  
+            downsample_factor = 5
+        else:  # Smaller files - minimal downsampling
+            downsample_factor = 2
+            
         recording_fast = recording[::downsample_factor]
         fast_sample_rate = self.sample_rate / downsample_factor
         
@@ -96,8 +102,8 @@ class LongRecordingAnalyzer:
         # Calculate instantaneous power on downsampled signal
         instant_power = np.abs(recording_fast)**2
         
-        # OPTIMIZATION 2: Much faster smoothing using simple moving average
-        window_size = max(1, int(0.001 * fast_sample_rate))  # 1ms window
+        # OPTIMIZATION 2: Much faster smoothing with smaller window to separate packets
+        window_size = max(1, int(0.0001 * fast_sample_rate))  # 0.1ms window (was 1ms)
         if window_size > 1:
             # Use scipy uniform filter for faster smoothing
             from scipy.ndimage import uniform_filter1d
@@ -108,9 +114,13 @@ class LongRecordingAnalyzer:
         # Convert to dB
         power_db = 10 * np.log10(power_smooth + 1e-12)
         noise_floor_db = np.percentile(power_db, 10)  # Noise floor level
+        max_power_db = np.max(power_db)
         
-        # OPTIMIZATION 3: More aggressive threshold for faster processing
-        threshold_db = noise_floor_db + self.power_threshold_db + 10  # 10dB higher threshold
+        print(f"🔍 Detection stats: Noise floor: {noise_floor_db:.1f}dB, Max power: {max_power_db:.1f}dB, Dynamic range: {max_power_db-noise_floor_db:.1f}dB")
+        
+        # OPTIMIZATION 3: Smart threshold - aggressive but not too high to miss packets
+        threshold_db = noise_floor_db + self.power_threshold_db + 5  # 5dB higher threshold (was +10)
+        print(f"🎯 Using threshold: {threshold_db:.1f}dB")
         above_threshold = power_db > threshold_db
         
         # Find continuous areas
@@ -119,7 +129,64 @@ class LongRecordingAnalyzer:
         
         print(f"📡 Found {num_features} potential packet areas (downsampled)")
         
-        # OPTIMIZATION 4: Limit to strongest signals only (max 20 packets)
+        # ADDITIONAL: Try peak-based detection for better separation
+        if num_features <= 2:  # If we found few areas, try peak detection
+            from scipy.signal import find_peaks
+            
+            # Find peaks in power signal
+            peak_indices, _ = find_peaks(power_db, 
+                                       height=threshold_db + 5,  # At least 5dB above threshold
+                                       distance=int(0.005 * fast_sample_rate))  # Min 5ms between peaks
+            
+            print(f"🔍 Peak detection found {len(peak_indices)} potential packet centers")
+            
+            # Convert peaks to packet areas
+            peak_objects = []
+            for peak_idx in peak_indices:
+                # Find the extent around each peak
+                start_search = max(0, peak_idx - int(0.05 * fast_sample_rate))  # Search 50ms before peak
+                end_search = min(len(power_db), peak_idx + int(0.05 * fast_sample_rate))  # Search 50ms after peak
+                
+                # Find where signal drops below threshold around the peak
+                start_idx = peak_idx
+                for i in range(peak_idx, start_search, -1):
+                    if power_db[i] < threshold_db:
+                        start_idx = i + 1
+                        break
+                        
+                end_idx = peak_idx
+                for i in range(peak_idx, end_search):
+                    if power_db[i] < threshold_db:
+                        end_idx = i
+                        break
+                
+                if end_idx > start_idx + int(0.0005 * fast_sample_rate):  # At least 0.5ms duration
+                    peak_objects.append((slice(start_idx, end_idx),))
+                    
+            if len(peak_objects) > len(objects):
+                print(f"⚡ Using peak-based detection: {len(peak_objects)} packets vs {len(objects)} from threshold")
+                objects = peak_objects
+                num_features = len(objects)
+        
+        # OPTIMIZATION 4: Smart signal selection
+        if num_features == 0:
+            print("⚠️ No packets found with higher threshold, trying lower threshold...")
+            # Try with original threshold if no packets found
+            threshold_db = noise_floor_db + self.power_threshold_db  # Original threshold
+            above_threshold = power_db > threshold_db
+            labeled, num_features = label(above_threshold)
+            objects = find_objects(labeled)
+            print(f"📡 Found {num_features} potential packet areas with lower threshold")
+            
+            # If still no packets, try even lower threshold
+            if num_features == 0:
+                print("⚠️ Still no packets, trying very sensitive detection...")
+                threshold_db = noise_floor_db + self.power_threshold_db - 10  # Very low threshold
+                above_threshold = power_db > threshold_db
+                labeled, num_features = label(above_threshold)
+                objects = find_objects(labeled)
+                print(f"📡 Found {num_features} potential packet areas with very low threshold")
+        
         if num_features > 20:
             print("⚡ Too many areas detected, selecting strongest 20 signals")
             # Calculate power for each area and keep only the strongest
@@ -148,8 +215,16 @@ class LongRecordingAnalyzer:
             # Filter by packet length
             min_samples = self.min_packet_samples
             max_samples = self.max_packet_samples
-            if duration_samples < min_samples or duration_samples > max_samples:
+            duration_ms = duration_samples / self.sample_rate * 1000
+            
+            if duration_samples < min_samples:
+                print(f"⚠️ Skipping short packet: {duration_ms:.1f}ms (min: {min_samples/self.sample_rate*1000:.1f}ms)")
                 continue
+            if duration_samples > max_samples:
+                print(f"⚠️ Skipping long packet: {duration_ms:.1f}ms (max: {max_samples/self.sample_rate*1000:.1f}ms)")
+                continue
+                
+            print(f"✅ Valid packet found: {duration_ms:.1f}ms duration")
             
             # Add safety margin
             safe_start = max(0, start_idx - self.safety_margin_samples)
@@ -192,8 +267,100 @@ class LongRecordingAnalyzer:
                 'snr_db': avg_power_db - noise_floor_db
             })
         
+        # OPTIMIZATION: If we found very few packets, try without downsampling
+        if len(packets) <= 1 and downsample_factor > 1:
+            print(f"⚠️ Found only {len(packets)} packet(s), trying full-resolution detection...")
+            
+            # Calculate power on full resolution
+            instant_power_full = np.abs(recording)**2
+            
+            # Faster smoothing for full resolution with small window
+            window_size_full = max(1, int(0.0001 * self.sample_rate))  # 0.1ms window
+            if window_size_full > 1:
+                from scipy.ndimage import uniform_filter1d
+                power_smooth_full = uniform_filter1d(instant_power_full.astype(np.float32), size=window_size_full)
+            else:
+                power_smooth_full = instant_power_full
+            
+            # Convert to dB
+            power_db_full = 10 * np.log10(power_smooth_full + 1e-12)
+            noise_floor_db_full = np.percentile(power_db_full, 10)
+            
+            # Use lower threshold for full resolution
+            threshold_db_full = noise_floor_db_full + self.power_threshold_db - 5  # Lower threshold
+            above_threshold_full = power_db_full > threshold_db_full
+            
+            # Find areas
+            labeled_full, num_features_full = label(above_threshold_full)
+            objects_full = find_objects(labeled_full)
+            
+            print(f"📡 Full resolution found {num_features_full} potential packet areas")
+            
+            # Process full resolution packets
+            for obj in objects_full:
+                if obj[0] is None:
+                    continue
+                    
+                start_idx = obj[0].start
+                end_idx = obj[0].stop
+                duration_samples = end_idx - start_idx
+                duration_ms = duration_samples / self.sample_rate * 1000
+                
+                # Check length constraints
+                if duration_samples < self.min_packet_samples:
+                    continue
+                if duration_samples > self.max_packet_samples:
+                    continue
+                
+                # Add safety margin
+                safe_start = max(0, start_idx - self.safety_margin_samples)
+                safe_end = min(len(recording), end_idx + self.safety_margin_samples)
+                
+                # Calculate packet characteristics
+                packet_data = recording[safe_start:safe_end]
+                packet_power = np.abs(packet_data)**2
+                avg_power_db = 10 * np.log10(np.mean(packet_power) + 1e-12)
+                
+                # Simple frequency estimation
+                if len(packet_data) > 100:
+                    sample_size = min(1000, len(packet_data))
+                    sample_data = packet_data[:sample_size]
+                    phase_diff = np.angle(sample_data[1:] * np.conj(sample_data[:-1]))
+                    mean_phase_diff = np.mean(phase_diff)
+                    estimated_freq = abs(mean_phase_diff * self.sample_rate / (2 * np.pi))
+                    power_envelope = np.abs(sample_data)
+                    power_var = np.var(power_envelope)
+                    estimated_bandwidth = min(self.sample_rate / 4, power_var * 1e6)
+                else:
+                    estimated_freq = self.sample_rate / 8
+                    estimated_bandwidth = self.sample_rate / 16
+                
+                packet_info = {
+                    'start_idx': safe_start,
+                    'end_idx': safe_end,
+                    'power_db': avg_power_db,
+                    'center_freq': estimated_freq,
+                    'bandwidth': estimated_bandwidth,
+                    'snr_db': avg_power_db - noise_floor_db_full
+                }
+                
+                # Check if this is a new packet (not already found)
+                is_new = True
+                for existing_packet in packets:
+                    overlap_start = max(packet_info['start_idx'], existing_packet['start_idx'])
+                    overlap_end = min(packet_info['end_idx'], existing_packet['end_idx'])
+                    if overlap_end > overlap_start:
+                        overlap_ratio = (overlap_end - overlap_start) / (packet_info['end_idx'] - packet_info['start_idx'])
+                        if overlap_ratio > 0.5:  # More than 50% overlap
+                            is_new = False
+                            break
+                
+                if is_new:
+                    packets.append(packet_info)
+                    print(f"✅ Found additional packet: {duration_ms:.1f}ms duration, {estimated_freq/1e6:.1f}MHz")
+        
         elapsed_time = time.time() - start_time
-        print(f"✅ Fast detection completed in {elapsed_time:.2f} seconds")
+        print(f"✅ Detection completed in {elapsed_time:.2f} seconds")
         print(f"✅ Detected {len(packets)} valid packets")
         return packets
     
