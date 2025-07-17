@@ -22,6 +22,7 @@ from utils import (
     normalize_spectrogram,
     save_vector,
     save_vector_wv,
+    balanced_vector_normalization,
     detect_packet_bounds,
     load_packet_info,
     cross_correlate_signals,
@@ -1817,12 +1818,11 @@ class UnifiedVectorApp:
                 messagebox.showerror("Error", "No valid packets to include in vector")
                 return
             
-            # Normalization
+            # Normalization - Use balanced normalization for better frequency component handling
             if self.normalize.get():
-                max_val = np.max(np.abs(vector))
-                if max_val > 0:
-                    vector = vector / max_val
-                    print("Vector normalized")
+                from utils import balanced_vector_normalization
+                vector, scale_factor = balanced_vector_normalization(vector)
+                print(f"Vector normalized with balanced algorithm (scale: {scale_factor:.3f})")
             
             # Save vector
             timestamp = time.strftime("%Y%m%d_%H%M%S")

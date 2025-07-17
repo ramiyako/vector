@@ -1480,7 +1480,7 @@ def transplant_packet_in_vector(vector, packet_signal, vector_location, packet_l
         # Extract the packet segment to transplant
         packet_segment = packet_signal[packet_location:packet_location + actual_packet_length]
         
-        # Power normalization
+        # Enhanced power normalization with minimum amplitude preservation
         if normalize_power and actual_packet_length > 0:
             # Calculate power of the original region
             original_region = vector[vector_location:vector_location + actual_packet_length]
@@ -1490,12 +1490,24 @@ def transplant_packet_in_vector(vector, packet_signal, vector_location, packet_l
             # Apply power normalization if packet has non-zero power
             if packet_power > 0 and original_power > 0:
                 power_scale = np.sqrt(original_power / packet_power)
+                
+                # Ensure minimum visibility - prevent over-attenuation of weak packets
+                min_scale = 0.1  # Minimum 10% of original amplitude
+                max_scale = 5.0  # Maximum 5x amplification to prevent distortion
+                
+                power_scale = np.clip(power_scale, min_scale, max_scale)
                 packet_segment = packet_segment * power_scale
-                print(f"Power normalization applied: scale factor = {power_scale:.3f}")
+                
+                print(f"Enhanced power normalization applied: scale factor = {power_scale:.3f} (clipped to {min_scale}-{max_scale})")
             elif packet_power == 0:
                 print("Warning: Packet has zero power - normalization skipped")
             elif original_power == 0:
-                print("Warning: Original region has zero power - normalization skipped")
+                # If original region has zero power, apply moderate scaling to maintain visibility
+                moderate_scale = 0.3
+                packet_segment = packet_segment * moderate_scale
+                print(f"Warning: Original region has zero power - applied moderate scaling: {moderate_scale}")
+            else:
+                print("Warning: Power normalization conditions not met - skipped")
         
         # Transplant the (potentially normalized) packet
         new_vector[vector_location:vector_location + actual_packet_length] = packet_segment
@@ -1591,4 +1603,169 @@ def validate_transplant_quality(original_vector, transplanted_vector, packet_sig
     }
     
     return validation_result
+
+
+def balanced_vector_normalization(vector, target_peak=0.8, min_component_ratio=0.15):
+    """
+    Apply balanced normalization that preserves relative amplitude relationships
+    while ensuring weaker frequency components remain visible.
+    
+    Parameters:
+    -----------
+    vector : numpy.ndarray
+        Complex vector to normalize
+    target_peak : float
+        Target peak amplitude (default 0.8 to avoid clipping)
+    min_component_ratio : float
+        Minimum amplitude ratio for weaker components (default 0.15)
+        
+    Returns:
+    --------
+    normalized_vector : numpy.ndarray
+        Balanced normalized vector
+    scale_factor : float
+        Applied scale factor
+    """
+    if len(vector) == 0:
+        return vector, 1.0
+    
+    # Calculate absolute values
+    abs_vector = np.abs(vector)
+    max_amplitude = np.max(abs_vector)
+    
+    if max_amplitude == 0:
+        return vector, 1.0
+    
+    # Analyze frequency domain to detect component ratios using a more sensitive approach
+    fft_vector = np.fft.fft(vector)
+    fft_magnitude = np.abs(fft_vector)
+    
+    # Use a lower threshold to detect weaker peaks and analyze only positive frequencies
+    n_samples = len(vector)
+    positive_freqs = fft_magnitude[:n_samples//2]  # Only positive frequencies
+    
+    # Find local maxima that are significant
+    from scipy.signal import find_peaks
+    peak_threshold = 0.02 * np.max(positive_freqs)  # Very low threshold for weak components
+    peaks, _ = find_peaks(positive_freqs, height=peak_threshold, distance=5)
+    
+    if len(peaks) >= 2:
+        # Multiple frequency components detected
+        peak_heights = positive_freqs[peaks]
+        strongest_peak = np.max(peak_heights)
+        weakest_peak = np.min(peak_heights)
+        
+        frequency_ratio = weakest_peak / strongest_peak
+        print(f"Frequency analysis: {len(peaks)} peaks found, strongest={strongest_peak:.1f}, weakest={weakest_peak:.1f}, ratio={frequency_ratio:.3f}")
+        
+        # Use frequency domain analysis for better detection
+        needs_balanced_normalization = frequency_ratio < min_component_ratio
+    else:
+        # Single dominant component or use alternative analysis
+        # Try spectral flatness as an indicator of signal complexity
+        spectral_flatness = np.exp(np.mean(np.log(positive_freqs + 1e-12))) / np.mean(positive_freqs)
+        
+        # Also check amplitude distribution
+        p95 = np.percentile(abs_vector[abs_vector > 0], 95)
+        p5 = np.percentile(abs_vector[abs_vector > 0], 5)
+        amplitude_ratio = p5 / p95 if p95 > 0 else 0
+        dynamic_range = p95 / p5 if p5 > 0 else float('inf')
+        
+        print(f"Single peak detected, spectral_flatness={spectral_flatness:.6f}, amplitude_ratio={amplitude_ratio:.3f}")
+        
+        # Use multiple criteria for detection
+        needs_balanced_normalization = (
+            amplitude_ratio < min_component_ratio/2 or 
+            dynamic_range > 15.0 or 
+            spectral_flatness < 0.1  # Low spectral flatness indicates non-uniform spectrum
+        )
+        frequency_ratio = amplitude_ratio
+    
+    if needs_balanced_normalization:
+        print(f"Applying balanced normalization (component ratio: {frequency_ratio:.3f})")
+        
+        # Use a different approach: frequency-domain selective boosting
+        # instead of time-domain compression
+        
+        # Apply FFT-based selective boosting
+        if frequency_ratio < 0.1:
+            print("Applying frequency-domain selective boosting for weak components")
+            
+            # Transform to frequency domain
+            fft_signal = np.fft.fft(vector)
+            fft_magnitude = np.abs(fft_signal)
+            fft_phase = np.angle(fft_signal)
+            
+            # Identify weak frequency regions that need boosting
+            positive_freqs = fft_magnitude[:len(fft_signal)//2]
+            boost_threshold = 0.2 * np.max(positive_freqs)  # Boost components below 20% of max
+            
+            # Create a symmetric boost mask
+            boost_mask = np.zeros_like(fft_magnitude, dtype=bool)
+            positive_boost = (positive_freqs < boost_threshold) & (positive_freqs > 0.01 * np.max(positive_freqs))
+            boost_mask[:len(positive_freqs)] = positive_boost
+            
+            # Mirror for negative frequencies (excluding DC and Nyquist)
+            n_half = len(positive_freqs)
+            if n_half > 1:
+                # Mirror the positive frequencies to negative frequencies
+                n_mirror = min(len(positive_boost) - 1, len(boost_mask) - n_half)
+                if n_mirror > 0:
+                    boost_mask[n_half:n_half + n_mirror] = positive_boost[1:n_mirror + 1][::-1]
+            
+            # Apply selective boosting
+            boost_factor = 2.5 if frequency_ratio < 0.05 else 2.0
+            boosted_magnitude = fft_magnitude.copy()
+            boosted_magnitude[boost_mask] *= boost_factor
+            
+            # Reconstruct signal
+            boosted_fft = boosted_magnitude * np.exp(1j * fft_phase)
+            enhanced_vector = np.fft.ifft(boosted_fft)
+            
+            # Normalize to target peak
+            max_enhanced = np.max(np.abs(enhanced_vector))
+            if max_enhanced > 0:
+                scale_factor = target_peak / max_enhanced
+                normalized_vector = enhanced_vector * scale_factor
+            else:
+                normalized_vector = enhanced_vector
+                scale_factor = 1.0
+                
+            print(f"Frequency-domain boosting applied: boost_factor={boost_factor:.1f}, boosted_bins={np.sum(boost_mask)}")
+            
+        else:
+            # For moderate imbalance, use time-domain compression
+            compression_factor = 0.75  # Mild compression
+            
+            magnitude = np.abs(vector)
+            phase = np.angle(vector)
+            
+            # Normalize magnitude to 0-1 range for compression
+            if np.max(magnitude) > 0:
+                magnitude_normalized = magnitude / np.max(magnitude)
+                
+                # Apply compression using power function
+                compressed_magnitude = magnitude_normalized ** compression_factor
+                
+                # Scale to target peak
+                compressed_magnitude = compressed_magnitude * target_peak
+                
+                # Reconstruct the complex signal
+                normalized_vector = compressed_magnitude * np.exp(1j * phase)
+                
+                # Calculate effective scale factor
+                scale_factor = target_peak / np.max(magnitude)
+            else:
+                normalized_vector = vector
+                scale_factor = 1.0
+                 
+            print(f"Time-domain compression applied: compression={compression_factor:.2f}, scale={scale_factor:.3f}")
+        
+    else:
+        # Standard normalization for well-balanced signals
+        scale_factor = target_peak / max_amplitude
+        normalized_vector = vector * scale_factor
+        print(f"Standard normalization applied: scale={scale_factor:.3f}")
+    
+    return normalized_vector, scale_factor
 

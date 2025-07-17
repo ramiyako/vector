@@ -270,11 +270,11 @@ class VectorApp:
             print("Vector max:", np.abs(vector).max())
             print("Vector min:", np.abs(vector).min())
             
-            # Normalize
+            # Normalize - Use balanced normalization for better frequency component handling
             if self.normalize.get():
-                max_abs = np.abs(vector).max()
-                if max_abs > 0:
-                    vector = vector / max_abs
+                from utils import balanced_vector_normalization
+                vector, scale_factor = balanced_vector_normalization(vector)
+                print(f"Vector normalized with balanced algorithm (scale: {scale_factor:.3f})")
                     
             if output_format == "wv":
                 from utils import save_vector_wv
